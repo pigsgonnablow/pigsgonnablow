@@ -117,9 +117,10 @@
   let running = false;
   let burgersToFull = 5;
   let feedProgress = 0;
-  let pigState = 'idle'; // idle, warning, exploding, cooldown
-  let warnTimer = 0;
+  let pigState = 'idle'; // idle, jumping, exploding, cooldown
   let cooldownTimer = 0;
+  let jumpTimer = 0;
+  const JUMP_DURATION = 75; // ~1.25s at 60fps, dragon's window to escape the landing zone
   let shockRadius = 0;
   let shockActive = false;
   let invuln = 0;
@@ -151,7 +152,11 @@
     return m + ':' + s.toFixed(1).padStart(4,'0');
   }
 
-  const pig = { x: W/2, y: H*0.32, baseSize: 60, wobble:0 };
+  const pig = {
+    x: W/2, y: H*0.32, baseSize: 60, wobble:0,
+    jumpStartX:0, jumpStartY:0, targetX:0, targetY:0, airHeight:0
+  };
+  const JUMP_ARC_HEIGHT = 110; // visual peak height of the jump, px
 
   const DRAGON_BASE_SIZE = 42;
   const DRAGON_GROWTH_CAP = 0.45; // max +45% size, reached at DRAGON_GROWTH_BURGERS fed
@@ -191,7 +196,7 @@
 
   function resetGame(){
     score = 0; lives = 3; feedProgress = 0; burgersToFull = 5;
-    pigState = 'idle'; warnTimer = 0; cooldownTimer = 0;
+    pigState = 'idle'; jumpTimer = 0; cooldownTimer = 0;
     shockActive = false; particles = []; flyingBurgers = []; groundBurgers = [];
     carrying = false; invuln = 0;
     totalBurgersFed = 0;
@@ -327,8 +332,12 @@
         updateHud();
         spawnBurst(pig.x, pig.y - 10, '#ffd23f', 10);
         if (feedProgress >= burgersToFull){
-          pigState = 'warning';
-          warnTimer = 90;
+          pigState = 'jumping';
+          jumpTimer = JUMP_DURATION;
+          pig.jumpStartX = pig.x; pig.jumpStartY = pig.y;
+          pig.targetX = Math.max(50, Math.min(W-50, dragon.x));
+          pig.targetY = Math.max(H*0.3, Math.min(H-70, dragon.y));
+          warningEl.textContent = "INCOMING!";
           warningEl.style.display = 'block';
         }
       }
@@ -336,9 +345,14 @@
 
     // --- pig states ---
     pig.wobble += 0.15;
-    if (pigState === 'warning'){
-      warnTimer--;
-      if (warnTimer <= 0){
+    if (pigState === 'jumping'){
+      jumpTimer--;
+      const t = 1 - Math.max(jumpTimer,0) / JUMP_DURATION;
+      pig.x = pig.jumpStartX + (pig.targetX - pig.jumpStartX) * t;
+      pig.y = pig.jumpStartY + (pig.targetY - pig.jumpStartY) * t;
+      pig.airHeight = Math.sin(t * Math.PI) * JUMP_ARC_HEIGHT;
+      if (jumpTimer <= 0){
+        pig.x = pig.targetX; pig.y = pig.targetY; pig.airHeight = 0;
         warningEl.style.display = 'none';
         explodePig();
       }
@@ -423,21 +437,38 @@
     ctx.fillRect(0, H*0.42, W, 6);
   }
 
+  function drawLandingShadow(){
+    const t = 1 - Math.max(jumpTimer,0) / JUMP_DURATION; // 0 at takeoff, 1 at landing
+    const startR = pig.baseSize*2.2;
+    const endR = pig.baseSize*0.85;
+    const r = startR + (endR-startR)*t;
+    ctx.save();
+    ctx.globalAlpha = 0.3 + 0.4*t;
+    ctx.fillStyle = 'rgba(200,20,0,0.35)';
+    ctx.beginPath();
+    ctx.ellipse(pig.targetX, pig.targetY, r, r*0.4, 0,0,Math.PI*2);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,60,0,0.9)';
+    ctx.lineWidth = 3;
+    ctx.stroke();
+    ctx.restore();
+  }
+
   function drawPig(){
     ctx.save();
-    const wob = pigState==='warning' ? Math.sin(pig.wobble*4)*6 : Math.sin(pig.wobble)*2;
-    ctx.translate(pig.x + wob, pig.y);
-    const scale = 1 + feedProgress*0.12;
+    const wob = Math.sin(pig.wobble)*2;
+    ctx.translate(pig.x + wob, pig.y - pig.airHeight);
+    const scale = (1 + feedProgress*0.12) * (pigState==='jumping' ? 1 + (pig.airHeight/JUMP_ARC_HEIGHT)*0.25 : 1);
     ctx.scale(scale, scale);
     if (invuln>0 && pigState==='idle'){} // no-op
 
-    // shadow
+    // shadow (drawn under the pig's actual airborne position, separate from the landing-zone indicator)
     ctx.fillStyle = 'rgba(0,0,0,0.15)';
     ctx.beginPath();
-    ctx.ellipse(0, pig.baseSize*0.75, pig.baseSize*0.8, 12, 0,0,Math.PI*2);
+    ctx.ellipse(0, pig.baseSize*0.75 + pig.airHeight, pig.baseSize*0.8, 12, 0,0,Math.PI*2);
     ctx.fill();
 
-    const bodyColor = pigState==='warning' ? '#ff8fa3' : '#ffb5c2';
+    const bodyColor = pigState==='jumping' ? '#ff8fa3' : '#ffb5c2';
     ctx.fillStyle = bodyColor;
     ctx.beginPath();
     ctx.ellipse(0,0, pig.baseSize, pig.baseSize*0.85, 0,0,Math.PI*2);
@@ -566,6 +597,7 @@
     drawBackground();
     drawShockwave();
     drawGroundBurgers();
+    if (pigState === 'jumping') drawLandingShadow();
     drawPig();
     drawFlyingBurgers();
     drawParticles();
