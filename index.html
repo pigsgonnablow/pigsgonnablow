@@ -376,11 +376,21 @@
   // ---------- leaderboard (Supabase) ----------
   const SUPABASE_URL = 'https://ljnshaoruygijgtcokwv.supabase.co';
   const SUPABASE_ANON_KEY = 'sb_publishable_N0dbDj1DwnHrluNRyDE6TQ_ReKaYogG';
-  const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  // Optional dependency: the game must still fully work (offline, CDN blocked, etc.)
+  // even if supabase-js never loaded, so this is created defensively and every call
+  // site below checks for `sb` before touching it.
+  let sb = null;
+  try {
+    if (window.supabase) sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  } catch (e) { sb = null; }
   let lastFinalScore = 0;
   let scoreAlreadySubmitted = false;
 
   async function submitScore(name, submittedScore){
+    if (!sb){
+      scoreSubmitStatus.textContent = 'Leaderboard unavailable right now.';
+      return;
+    }
     submitScoreBtn.disabled = true;
     scoreSubmitStatus.textContent = 'Submitting…';
     const { error } = await sb.from('scores').insert({ name, score: submittedScore });
@@ -406,6 +416,10 @@
   });
 
   async function renderLeaderboard(){
+    if (!sb){
+      leaderboardList.innerHTML = '<li>Leaderboard unavailable</li>';
+      return;
+    }
     leaderboardList.innerHTML = '<li>Loading…</li>';
     const { data, error } = await sb
       .from('scores')
