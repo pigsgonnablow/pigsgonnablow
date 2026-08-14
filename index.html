@@ -393,6 +393,40 @@
   const COIN_LIFE_FRAMES = 480; // ~8s at 60fps
   const COIN_FADE_FRAMES = 90;  // fade over the last ~1.5s
 
+  // ---------- background clouds (purely decorative, drift across the sky strip above
+  // the floor diamond) ----------
+  const clouds = [];
+  for (let i=0;i<5;i++){
+    clouds.push({
+      x: Math.random()*CANVAS_W,
+      y: 20 + Math.random()*(ISO_PAD_TOP-60),
+      size: rand(28,50),
+      speed: rand(0.12,0.3),
+      alpha: rand(0.65,0.9)
+    });
+  }
+  function updateClouds(){
+    for (const c of clouds){
+      c.x += c.speed;
+      if (c.x - c.size*2 > CANVAS_W) c.x = -c.size*2;
+    }
+  }
+  function drawClouds(){
+    ctx.save();
+    ctx.fillStyle = '#ffffff';
+    const puffs = [[0,0,1],[0.6,-0.15,0.75],[-0.6,-0.1,0.7],[0.3,0.25,0.65],[-0.3,0.2,0.6]];
+    for (const c of clouds){
+      ctx.globalAlpha = c.alpha;
+      ctx.beginPath();
+      for (const [dx,dy,s] of puffs){
+        ctx.moveTo(c.x + dx*c.size + s*c.size, c.y + dy*c.size);
+        ctx.arc(c.x + dx*c.size, c.y + dy*c.size, s*c.size, 0, Math.PI*2);
+      }
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
   function formatTime(ms){
     const total = ms/1000;
     const m = Math.floor(total/60);
@@ -838,6 +872,8 @@
       spawnGroundBurger();
       spawnTimer = 60 + Math.random()*60;
     }
+
+    updateClouds();
   }
 
   // ---------- drawing ----------
@@ -847,6 +883,8 @@
     g.addColorStop(1, '#a8dadc');
     ctx.fillStyle = g;
     ctx.fillRect(0,0,CANVAS_W,CANVAS_H);
+
+    drawClouds();
 
     // floor diamond: the world rect's four corners, projected
     const c0 = worldToScreen(0,0), c1 = worldToScreen(W,0);
