@@ -181,6 +181,16 @@
   function screenEllipseRadii(r){
     return { rx: r * ISO_TILE_W * Math.SQRT2, ry: r * ISO_TILE_H * Math.SQRT2 };
   }
+  // A world-space circular hit-radius projects to an elongated screen ellipse (wider than
+  // tall, since ISO_TILE_W > ISO_TILE_H) — so a plain world-space distance check feels
+  // stingy approaching from above/below and overly generous approaching from the side.
+  // This checks proximity in screen space instead, using the ellipse's average radius, so
+  // "close enough" feels the same from every approach direction.
+  function withinScreenRange(ax, ay, bx, by, worldRadius){
+    const A = worldToScreen(ax, ay), B = worldToScreen(bx, by);
+    const { rx, ry } = screenEllipseRadii(worldRadius);
+    return dist(A.sx, A.sy, B.sx, B.sy) < (rx + ry) / 2;
+  }
 
   // ---------- sound (synthesized via Web Audio API, no external files) ----------
   let audioCtx = null;
@@ -516,6 +526,7 @@
     shockMaxRadius = SHOCK_RADIUS_BASE;
     shockSpeed = SHOCK_SPEED_BASE;
     dragon.x = W/2; dragon.y = H*0.72;
+    dragon.vx = 0; dragon.vy = 0;
     updateDragonSize();
     pig.x = W/2; pig.y = H*0.32;
     spawnTimer = 0;
@@ -670,8 +681,11 @@
     }
 
     const speed = 4.2;
-    dragon.x += mx*speed;
-    dragon.y += my*speed;
+    const ACCEL = 0.3; // how quickly velocity eases toward the target each frame — gives the dragon a bit of slide instead of stopping dead
+    dragon.vx += (mx*speed - dragon.vx) * ACCEL;
+    dragon.vy += (my*speed - dragon.vy) * ACCEL;
+    dragon.x += dragon.vx;
+    dragon.y += dragon.vy;
     dragon.x = Math.max(dragon.size*0.5, Math.min(W-dragon.size*0.5, dragon.x));
     dragon.y = Math.max(dragon.size*0.5, Math.min(H-dragon.size*0.5, dragon.y));
 
@@ -681,7 +695,7 @@
     if (!carrying){
       for (let i=groundBurgers.length-1;i>=0;i--){
         const b = groundBurgers[i];
-        if (dist(dragon.x,dragon.y,b.x,b.y) < dragon.size*0.55 + 14){
+        if (withinScreenRange(dragon.x,dragon.y,b.x,b.y, dragon.size*0.55 + 14)){
           groundBurgers.splice(i,1);
           carrying = true;
           break;
@@ -691,8 +705,7 @@
 
     // --- feed pig ---
     if (carrying && pigState === 'idle'){
-      const d = dist(dragon.x,dragon.y,pig.x,pig.y);
-      if (d < dragon.size*0.5 + pig.baseSize*0.6){
+      if (withinScreenRange(dragon.x,dragon.y,pig.x,pig.y, dragon.size*0.5 + pig.baseSize*0.6)){
         carrying = false;
         feedPigSuccess();
       }
@@ -702,7 +715,7 @@
     for (let i=burgerProjectiles.length-1;i>=0;i--){
       const b = burgerProjectiles[i];
       b.x += b.vx; b.y += b.vy; b.rot += 0.3; b.life--;
-      if (pigState === 'idle' && dist(b.x,b.y,pig.x,pig.y) < pig.baseSize*0.6){
+      if (pigState === 'idle' && withinScreenRange(b.x,b.y,pig.x,pig.y, pig.baseSize*0.6)){
         burgerProjectiles.splice(i,1);
         feedPigSuccess();
         continue;
