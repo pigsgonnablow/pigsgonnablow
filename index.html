@@ -610,6 +610,12 @@
     }
   }
 
+  // The pig visibly puffs up as it's fed (up to +60% at max feedProgress) and again
+  // mid-jump — used by both rendering and hit-testing so the "reach" matches what's drawn.
+  function pigVisualScale(){
+    return (1 + feedProgress*0.12) * (pigState==='jumping' ? 1 + (pig.airHeight/JUMP_ARC_HEIGHT)*0.25 : 1);
+  }
+
   // Shared by the walk-in feed and the thrown-burger hit — both count as "successfully
   // fed the pig one burger" and should have identical effects.
   function feedPigSuccess(){
@@ -705,7 +711,7 @@
 
     // --- feed pig ---
     if (carrying && pigState === 'idle'){
-      if (withinScreenRange(dragon.x,dragon.y,pig.x,pig.y, dragon.size*0.5 + pig.baseSize*0.6)){
+      if (withinScreenRange(dragon.x,dragon.y,pig.x,pig.y, dragon.size*0.5 + pig.baseSize*0.6*pigVisualScale())){
         carrying = false;
         feedPigSuccess();
       }
@@ -715,7 +721,7 @@
     for (let i=burgerProjectiles.length-1;i>=0;i--){
       const b = burgerProjectiles[i];
       b.x += b.vx; b.y += b.vy; b.rot += 0.3; b.life--;
-      if (pigState === 'idle' && withinScreenRange(b.x,b.y,pig.x,pig.y, pig.baseSize*0.6)){
+      if (pigState === 'idle' && withinScreenRange(b.x,b.y,pig.x,pig.y, pig.baseSize*0.6*pigVisualScale())){
         burgerProjectiles.splice(i,1);
         feedPigSuccess();
         continue;
@@ -893,7 +899,7 @@
 
     ctx.save();
     ctx.translate(scr.sx + wob, scr.sy);
-    const scale = (1 + feedProgress*0.12) * (pigState==='jumping' ? 1 + (pig.airHeight/JUMP_ARC_HEIGHT)*0.25 : 1);
+    const scale = pigVisualScale();
     ctx.scale(scale, scale);
     if (invuln>0 && pigState==='idle'){} // no-op
 
