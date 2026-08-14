@@ -153,7 +153,14 @@
   </button>
 </div>
 
-<script>
+<script type="module">
+import { createIsoProjection } from './js/iso.js';
+import {
+  ensureAudio, sfxFeed, sfxThrow, sfxJump, sfxExplosion,
+  sfxCoin, sfxHit, sfxBonus, sfxGameOver, sfxOink, sfxRoar
+} from './js/audio.js';
+import { createLeaderboard } from './js/leaderboard.js';
+
 (function(){
   const canvas = document.getElementById('game');
   const ctx = canvas.getContext('2d');
@@ -163,194 +170,12 @@
   // radius constant below is in absolute pixels, so this purely adds space around them.
   const W = 600, H = 1000;
 
-  // ---------- isometric projection ----------
-  const ISO_ENABLED = true; // flip to false for a quick flat-view A/B comparison
-  const ISO_TILE_W = 0.6, ISO_TILE_H = 0.4; // controls the floor diamond's squash ratio
-  const ISO_PAD_X = 60, ISO_PAD_TOP = 160, ISO_PAD_BOTTOM = 60; // screen-space margins
-  const ISO_ORIGIN_X = ISO_PAD_X + H * ISO_TILE_W;
-  const ISO_ORIGIN_Y = ISO_PAD_TOP;
-  const CANVAS_W = ISO_PAD_X * 2 + (W + H) * ISO_TILE_W;
-  const CANVAS_H = ISO_PAD_TOP + ISO_PAD_BOTTOM + (W + H) * ISO_TILE_H;
+  const {
+    ISO_PAD_TOP, CANVAS_W, CANVAS_H,
+    worldToScreen, screenDirToWorldDir, screenEllipseRadii, withinScreenRange
+  } = createIsoProjection(W, H);
   canvas.width = CANVAS_W;
   canvas.height = CANVAS_H;
-
-  function worldToScreen(x, y, z){
-    z = z || 0;
-    if (!ISO_ENABLED) return { sx: x, sy: y - z };
-    return {
-      sx: ISO_ORIGIN_X + (x - y) * ISO_TILE_W,
-      sy: ISO_ORIGIN_Y + (x + y) * ISO_TILE_H - z
-    };
-  }
-  // Direction-only counterpart to worldToScreen (no origin offset) — lets keyboard/
-  // joystick input describe an on-screen direction (e.g. "right" = visually rightward)
-  // instead of a raw world axis.
-  function screenDirToWorldDir(dsx, dsy){
-    if (!ISO_ENABLED) return { dx: dsx, dy: dsy };
-    const u = dsx / ISO_TILE_W;
-    const v = dsy / ISO_TILE_H;
-    return { dx: (u + v) / 2, dy: (v - u) / 2 };
-  }
-  // A world-space circle of radius r projects to an axis-aligned screen ellipse under
-  // this transform (no rotation needed) — reused for the shockwave and landing shadow.
-  function screenEllipseRadii(r){
-    return { rx: r * ISO_TILE_W * Math.SQRT2, ry: r * ISO_TILE_H * Math.SQRT2 };
-  }
-  // A world-space circular hit-radius projects to an elongated screen ellipse (wider than
-  // tall, since ISO_TILE_W > ISO_TILE_H) — so a plain world-space distance check feels
-  // stingy approaching from above/below and overly generous approaching from the side.
-  // This checks proximity in screen space instead, using the ellipse's average radius, so
-  // "close enough" feels the same from every approach direction.
-  function withinScreenRange(ax, ay, bx, by, worldRadius){
-    const A = worldToScreen(ax, ay), B = worldToScreen(bx, by);
-    const { rx, ry } = screenEllipseRadii(worldRadius);
-    return dist(A.sx, A.sy, B.sx, B.sy) < (rx + ry) / 2;
-  }
-
-  // ---------- sound (synthesized via Web Audio API, no external files) ----------
-  let audioCtx = null;
-  function ensureAudio(){
-    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    else if (audioCtx.state === 'suspended') audioCtx.resume();
-  }
-  function playTone({freq, freqEnd=null, duration=0.15, type='sine', volume=0.25, delay=0}){
-    if (!audioCtx) return;
-    const t0 = audioCtx.currentTime + delay;
-    const osc = audioCtx.createOscillator();
-    const gain = audioCtx.createGain();
-    osc.type = type;
-    osc.frequency.setValueAtTime(freq, t0);
-    if (freqEnd) osc.frequency.exponentialRampToValueAtTime(Math.max(freqEnd,1), t0+duration);
-    gain.gain.setValueAtTime(0, t0);
-    gain.gain.linearRampToValueAtTime(volume, t0+0.01);
-    gain.gain.exponentialRampToValueAtTime(0.001, t0+duration);
-    osc.connect(gain).connect(audioCtx.destination);
-    osc.start(t0);
-    osc.stop(t0+duration+0.02);
-  }
-  function playNoiseBurst({duration=0.3, volume=0.3, filterFreqStart=2000, filterFreqEnd=200, delay=0}){
-    if (!audioCtx) return;
-    const t0 = audioCtx.currentTime + delay;
-    const bufferSize = Math.floor(audioCtx.sampleRate * duration);
-    const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
-    const data = buffer.getChannelData(0);
-    for (let i=0;i<bufferSize;i++) data[i] = Math.random()*2-1;
-    const noise = audioCtx.createBufferSource();
-    noise.buffer = buffer;
-    const filter = audioCtx.createBiquadFilter();
-    filter.type = 'lowpass';
-    filter.frequency.setValueAtTime(filterFreqStart, t0);
-    filter.frequency.exponentialRampToValueAtTime(Math.max(filterFreqEnd,20), t0+duration);
-    const gain = audioCtx.createGain();
-    gain.gain.setValueAtTime(volume, t0);
-    gain.gain.exponentialRampToValueAtTime(0.001, t0+duration);
-    noise.connect(filter).connect(gain).connect(audioCtx.destination);
-    noise.start(t0);
-    noise.stop(t0+duration+0.02);
-  }
-
-  function sfxFeed(){ playTone({freq:380, freqEnd:620, duration:0.09, type:'square', volume:0.18}); }
-  function sfxThrow(){ playTone({freq:260, freqEnd:520, duration:0.12, type:'sine', volume:0.16}); }
-  function sfxJump(){ playTone({freq:180, freqEnd:420, duration:0.3, type:'sawtooth', volume:0.2}); }
-  function sfxExplosion(){
-    playNoiseBurst({duration:0.4, volume:0.35, filterFreqStart:3000, filterFreqEnd:150});
-    playTone({freq:90, freqEnd:40, duration:0.35, type:'sine', volume:0.3});
-  }
-  function sfxCoin(){
-    playTone({freq:880, duration:0.09, type:'square', volume:0.15});
-    playTone({freq:1318.5, duration:0.12, type:'square', volume:0.15, delay:0.06});
-  }
-  function sfxHit(){ playTone({freq:220, freqEnd:80, duration:0.25, type:'sawtooth', volume:0.25}); }
-  function sfxBonus(){
-    playTone({freq:523.25, duration:0.1, type:'triangle', volume:0.2});
-    playTone({freq:659.25, duration:0.1, type:'triangle', volume:0.2, delay:0.08});
-    playTone({freq:783.99, duration:0.16, type:'triangle', volume:0.22, delay:0.16});
-  }
-  function sfxGameOver(){ playTone({freq:300, freqEnd:80, duration:0.6, type:'square', volume:0.25}); }
-
-  function sfxOink(){
-    if (!audioCtx) return;
-    const t0 = audioCtx.currentTime;
-    function oinkBurst(delay, freqStart, freqEnd, dur){
-      const t = t0 + delay;
-      const osc = audioCtx.createOscillator();
-      osc.type = 'sawtooth';
-      osc.frequency.setValueAtTime(freqStart, t);
-      osc.frequency.exponentialRampToValueAtTime(freqEnd, t+dur);
-      const filter = audioCtx.createBiquadFilter();
-      filter.type = 'bandpass';
-      filter.frequency.setValueAtTime(500, t);
-      filter.Q.setValueAtTime(3, t);
-      const gain = audioCtx.createGain();
-      gain.gain.setValueAtTime(0, t);
-      gain.gain.linearRampToValueAtTime(0.3, t+0.02);
-      gain.gain.exponentialRampToValueAtTime(0.001, t+dur);
-      osc.connect(filter).connect(gain).connect(audioCtx.destination);
-      osc.start(t);
-      osc.stop(t+dur+0.02);
-    }
-    oinkBurst(0, 340, 200, 0.13);
-    oinkBurst(0.16, 320, 190, 0.15);
-  }
-
-  function sfxRoar(){
-    if (!audioCtx) return;
-    const t0 = audioCtx.currentTime;
-    const dur = 1.1;
-
-    // low growl: two detuned sawtooth oscillators, pitch dropping over time, with vibrato
-    const osc1 = audioCtx.createOscillator();
-    const osc2 = audioCtx.createOscillator();
-    osc1.type = 'sawtooth'; osc2.type = 'sawtooth';
-    osc1.frequency.setValueAtTime(85, t0);
-    osc2.frequency.setValueAtTime(90, t0);
-    osc1.frequency.exponentialRampToValueAtTime(58, t0+dur);
-    osc2.frequency.exponentialRampToValueAtTime(63, t0+dur);
-
-    const lfo = audioCtx.createOscillator();
-    lfo.frequency.setValueAtTime(7, t0);
-    const lfoGain = audioCtx.createGain();
-    lfoGain.gain.setValueAtTime(8, t0); // vibrato depth, Hz
-    lfo.connect(lfoGain);
-    lfoGain.connect(osc1.frequency);
-    lfoGain.connect(osc2.frequency);
-
-    const growlFilter = audioCtx.createBiquadFilter();
-    growlFilter.type = 'lowpass';
-    growlFilter.frequency.setValueAtTime(1200, t0);
-    growlFilter.frequency.exponentialRampToValueAtTime(300, t0+dur);
-
-    const growlGain = audioCtx.createGain();
-    growlGain.gain.setValueAtTime(0, t0);
-    growlGain.gain.linearRampToValueAtTime(0.32, t0+0.15);
-    growlGain.gain.linearRampToValueAtTime(0.22, t0+dur*0.6);
-    growlGain.gain.exponentialRampToValueAtTime(0.001, t0+dur);
-
-    osc1.connect(growlFilter);
-    osc2.connect(growlFilter);
-    growlFilter.connect(growlGain).connect(audioCtx.destination);
-    osc1.start(t0); osc2.start(t0); lfo.start(t0);
-    osc1.stop(t0+dur+0.05); osc2.stop(t0+dur+0.05); lfo.stop(t0+dur+0.05);
-
-    // breathy noise layer for texture
-    const bufferSize = Math.floor(audioCtx.sampleRate * dur);
-    const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
-    const data = buffer.getChannelData(0);
-    for (let i=0;i<bufferSize;i++) data[i] = Math.random()*2-1;
-    const noise = audioCtx.createBufferSource();
-    noise.buffer = buffer;
-    const noiseFilter = audioCtx.createBiquadFilter();
-    noiseFilter.type = 'bandpass';
-    noiseFilter.frequency.setValueAtTime(900, t0);
-    noiseFilter.Q.setValueAtTime(0.7, t0);
-    const noiseGain = audioCtx.createGain();
-    noiseGain.gain.setValueAtTime(0, t0);
-    noiseGain.gain.linearRampToValueAtTime(0.15, t0+0.2);
-    noiseGain.gain.exponentialRampToValueAtTime(0.001, t0+dur);
-    noise.connect(noiseFilter).connect(noiseGain).connect(audioCtx.destination);
-    noise.start(t0);
-    noise.stop(t0+dur+0.05);
-  }
 
   const scoreEl = document.getElementById('score');
   const coinsEl = document.getElementById('coins');
@@ -374,74 +199,17 @@
   const throwBtn = document.getElementById('throwBtn');
 
   // ---------- leaderboard (Supabase) ----------
-  const SUPABASE_URL = 'https://ljnshaoruygijgtcokwv.supabase.co';
-  const SUPABASE_ANON_KEY = 'sb_publishable_N0dbDj1DwnHrluNRyDE6TQ_ReKaYogG';
-  // Optional dependency: the game must still fully work (offline, CDN blocked, etc.)
-  // even if supabase-js never loaded, so this is created defensively and every call
-  // site below checks for `sb` before touching it.
-  let sb = null;
-  try {
-    if (window.supabase) sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-  } catch (e) { sb = null; }
-  let lastFinalScore = 0;
-  let scoreAlreadySubmitted = false;
-
-  async function submitScore(name, submittedScore){
-    if (!sb){
-      scoreSubmitStatus.textContent = 'Leaderboard unavailable right now.';
-      return;
+  const leaderboard = createLeaderboard({
+    url: 'https://ljnshaoruygijgtcokwv.supabase.co',
+    anonKey: 'sb_publishable_N0dbDj1DwnHrluNRyDE6TQ_ReKaYogG',
+    elements: {
+      submitBtn: submitScoreBtn,
+      nameInput: scoreNameInput,
+      statusEl: scoreSubmitStatus,
+      listEl: leaderboardList,
+      submitBox: scoreSubmitBox
     }
-    submitScoreBtn.disabled = true;
-    scoreSubmitStatus.textContent = 'Submitting…';
-    const { error } = await sb.from('scores').insert({ name, score: submittedScore });
-    if (error){
-      scoreSubmitStatus.textContent = "Couldn't submit — try again.";
-      submitScoreBtn.disabled = false;
-      return;
-    }
-    scoreAlreadySubmitted = true;
-    scoreSubmitStatus.textContent = 'Submitted!';
-    scoreSubmitBox.style.display = 'none';
-    renderLeaderboard();
-  }
-
-  submitScoreBtn.addEventListener('click', () => {
-    if (scoreAlreadySubmitted) return;
-    const name = scoreNameInput.value.trim().slice(0,12);
-    if (!name){
-      scoreSubmitStatus.textContent = 'Enter a name first.';
-      return;
-    }
-    submitScore(name, lastFinalScore);
   });
-
-  async function renderLeaderboard(){
-    if (!sb){
-      leaderboardList.innerHTML = '<li>Leaderboard unavailable</li>';
-      return;
-    }
-    leaderboardList.innerHTML = '<li>Loading…</li>';
-    const { data, error } = await sb
-      .from('scores')
-      .select('name,score')
-      .order('score', { ascending:false })
-      .limit(10);
-    if (error || !data){
-      leaderboardList.innerHTML = '<li>Leaderboard unavailable</li>';
-      return;
-    }
-    if (data.length === 0){
-      leaderboardList.innerHTML = '<li>No scores yet — be the first!</li>';
-      return;
-    }
-    leaderboardList.innerHTML = data
-      .map(row => `<li>${escapeHtml(row.name)} — ${row.score}</li>`)
-      .join('');
-  }
-
-  function escapeHtml(s){
-    return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-  }
 
   // ---------- state ----------
   let score = 0;
@@ -792,13 +560,7 @@
     finalScoreEl.textContent = 'Score: ' + score + '  •  Time: ' + formatTime(elapsedMs);
     gameOverEl.classList.remove('hidden');
 
-    lastFinalScore = score;
-    scoreAlreadySubmitted = false;
-    scoreSubmitBox.style.display = '';
-    scoreNameInput.value = '';
-    scoreSubmitStatus.textContent = '';
-    submitScoreBtn.disabled = false;
-    renderLeaderboard();
+    leaderboard.onGameOver(score);
   }
 
   function update(dt){
