@@ -86,20 +86,8 @@
     border:2px solid rgba(255,255,255,0.85);
     pointer-events:none;
   }
-  #fireBtn {
-    position:fixed; right:24px; bottom:24px; /* fallback; JS anchors this to the canvas's actual bounds */
-    width:130px; height:64px; border-radius:14px;
-    background:#ff6b00; color:#fff; border:none;
-    box-shadow:0 6px 0 #b34c00;
-    cursor:pointer; font-family: Arial Black, Arial, sans-serif; font-weight:900;
-    display:flex; flex-direction:column; align-items:center; justify-content:center;
-    line-height:1.2; -webkit-user-select:none; user-select:none;
-  }
-  #fireBtn span:first-child { font-size:20px; }
-  #fireBtn span:last-child { font-size:10px; opacity:0.85; }
-  #fireBtn:active { box-shadow:0 2px 0 #b34c00; transform:translateY(4px); }
   #throwBtn {
-    position:fixed; right:24px; bottom:100px; /* fallback; JS anchors this above #fireBtn */
+    position:fixed; right:24px; bottom:24px; /* fallback; JS anchors this to the canvas's actual bounds */
     width:130px; height:64px; border-radius:14px;
     background:#ffd23f; color:#7a2e00; border:none;
     box-shadow:0 6px 0 #c98e00;
@@ -129,7 +117,6 @@
     <p style="color:#ffd23f; font-weight:900; letter-spacing:0.5px; margin-bottom:8px;">Cheeseburger Dragon vs. The Exploding Pig</p>
     <p>Grab cheeseburgers and stuff them in the pig's mouth. Feed him enough and he'll leap straight at you — watch the landing shadow and <b>DODGE</b> before he comes down and blows! When he explodes, coins scatter everywhere. Grab them for points!</p>
     <p>🎮 Use the joystick (bottom-left) or arrow keys / WASD to move the dragon.</p>
-    <p>🔥 Collect 15 coins to charge a fire breath — hit the FIRE! button or press SPACE to blast the pig for bonus coins!</p>
     <p>🍔 Spend 5 coins to throw your burger at the pig from range — press E or tap THROW!</p>
     <button id="startBtn">START</button>
   </div>
@@ -144,11 +131,6 @@
   <div id="joystick" class="hidden">
     <div id="joystickKnob"></div>
   </div>
-
-  <button id="fireBtn" class="hidden">
-    <span>🔥 FIRE!</span>
-    <span>(SPACE)</span>
-  </button>
 
   <button id="throwBtn" class="hidden">
     <span>🍔 THROW</span>
@@ -260,7 +242,6 @@
     playTone({freq:783.99, duration:0.16, type:'triangle', volume:0.22, delay:0.16});
   }
   function sfxGameOver(){ playTone({freq:300, freqEnd:80, duration:0.6, type:'square', volume:0.25}); }
-  function sfxFireBreath(){ playNoiseBurst({duration:0.3, volume:0.25, filterFreqStart:600, filterFreqEnd:4000}); }
 
   function sfxOink(){
     if (!audioCtx) return;
@@ -360,17 +341,11 @@
   const oinkBtn = document.getElementById('oinkBtn');
   const joystick = document.getElementById('joystick');
   const joystickKnob = document.getElementById('joystickKnob');
-  const fireBtn = document.getElementById('fireBtn');
   const throwBtn = document.getElementById('throwBtn');
 
   // ---------- state ----------
   let score = 0;
   let coins = 0;
-  let fireCharge = 0;
-  const FIRE_CHARGE_COST = 15;
-  const FIRE_RANGE = 340;
-  const FIRE_CONE_HALF_ANGLE = 0.35; // radians, ~20°
-  let dragonFacingAngle = -Math.PI/2; // world-space angle the dragon last moved toward
   const BURGER_THROW_COST = 5;
   let burgerProjectiles = [];
   let lives = 3;
@@ -438,10 +413,6 @@
   const keys = {};
   window.addEventListener('keydown', e => {
     keys[e.key.toLowerCase()] = true;
-    if (e.code === 'Space' || e.key === ' ' || e.key === 'Spacebar'){
-      e.preventDefault();
-      breatheFire();
-    }
     if (e.code === 'KeyE' || e.key.toLowerCase() === 'e'){
       e.preventDefault();
       throwBurger();
@@ -504,40 +475,27 @@
       joystick.style.top = Math.round(rect.bottom - margin - joySize) + 'px';
     }
   }
-  // Mirrors positionJoystick(), anchoring the fire button to the canvas's bottom-right
+  // Mirrors positionJoystick(), anchoring the throw button to the canvas's bottom-right
   // instead, so it also lands in the letterbox space rather than over the game.
-  function positionFireBtn(){
+  function positionThrowBtn(){
     const rect = canvas.getBoundingClientRect();
-    const btnW = 130, btnH = 64, margin = 24;
+    const btnH = 64, margin = 24;
     const spaceBelow = window.innerHeight - rect.bottom;
-    fireBtn.style.right = Math.round(window.innerWidth - rect.right + margin) + 'px';
+    throwBtn.style.right = Math.round(window.innerWidth - rect.right + margin) + 'px';
     if (spaceBelow >= btnH + margin){
       const top = rect.bottom + Math.max((spaceBelow - btnH) / 2, margin / 2);
-      fireBtn.style.top = Math.round(top) + 'px';
+      throwBtn.style.top = Math.round(top) + 'px';
     } else {
-      fireBtn.style.top = Math.round(rect.bottom - margin - btnH) + 'px';
+      throwBtn.style.top = Math.round(rect.bottom - margin - btnH) + 'px';
     }
-  }
-  // Stacks directly above the fire button (same right edge, offset up by its height
-  // plus a gap) so it always lands cleanly regardless of which branch
-  // positionFireBtn() took.
-  function positionThrowBtn(){
-    const btnH = 64, gap = 12;
-    throwBtn.style.right = fireBtn.style.right;
-    throwBtn.style.top = Math.round(parseFloat(fireBtn.style.top) - btnH - gap) + 'px';
   }
   function positionOverlayControls(){
     positionJoystick();
-    positionFireBtn();
     positionThrowBtn();
   }
   window.addEventListener('resize', positionOverlayControls);
   positionOverlayControls();
 
-  fireBtn.addEventListener('click', (e) => {
-    e.preventDefault();
-    breatheFire();
-  });
   throwBtn.addEventListener('click', (e) => {
     e.preventDefault();
     throwBurger();
@@ -551,9 +509,7 @@
     pigState = 'idle'; jumpTimer = 0; cooldownTimer = 0;
     shockActive = false; particles = []; coinDrops = []; groundBurgers = [];
     coinBatchId = 0; coinBatches = {}; bonusMsgTimer = 0;
-    fireCharge = 0; dragonFacingAngle = -Math.PI/2;
     burgerProjectiles = [];
-    fireBtn.classList.add('hidden');
     throwBtn.classList.add('hidden');
     warningEl.style.display = 'none';
     carrying = false; invuln = 0;
@@ -596,56 +552,6 @@
         x,y, vx:Math.cos(a)*s, vy:Math.sin(a)*s - 1,
         life:1, color, size:rand(3,7)
       });
-    }
-  }
-
-  const FIRE_COLORS = ['#ff6b00','#ff9800','#ffcc00','#ff3d00'];
-  function spawnFireCone(x, y, angle){
-    for (let i=0;i<40;i++){
-      const spread = (Math.random()-0.5) * FIRE_CONE_HALF_ANGLE * 1.8;
-      const a = angle + spread;
-      const speed = rand(6, FIRE_RANGE/12 + 6);
-      particles.push({
-        x, y, vx:Math.cos(a)*speed, vy:Math.sin(a)*speed,
-        life:1, color: FIRE_COLORS[Math.floor(Math.random()*FIRE_COLORS.length)], size:rand(4,9)
-      });
-    }
-  }
-  function angleDiffAbs(a,b){
-    let d = Math.abs(a-b) % (Math.PI*2);
-    if (d > Math.PI) d = Math.PI*2 - d;
-    return d;
-  }
-  function updateFireBtn(){
-    if (running && fireCharge >= FIRE_CHARGE_COST) fireBtn.classList.remove('hidden');
-    else fireBtn.classList.add('hidden');
-  }
-  function dropBonusCoins(x, y){
-    const count = 4;
-    coinBatchId++;
-    const batchId = coinBatchId;
-    coinBatches[batchId] = { total: count, collected: 0, remaining: count, failed: false, rewarded: false };
-    for (let i=0;i<count;i++){
-      const a = Math.random()*Math.PI*2;
-      const s = rand(3,7);
-      coinDrops.push({
-        x, y, vx:Math.cos(a)*s, vy:Math.sin(a)*s,
-        landed:false, rot:Math.random()*Math.PI*2, batchId
-      });
-    }
-    spawnBurst(x, y, '#ffd23f', 16);
-  }
-  function breatheFire(){
-    if (!running || fireCharge < FIRE_CHARGE_COST) return;
-    fireCharge -= FIRE_CHARGE_COST;
-    updateFireBtn();
-    sfxFireBreath();
-    spawnFireCone(dragon.x, dragon.y, dragonFacingAngle);
-
-    const angleToPig = Math.atan2(pig.y-dragon.y, pig.x-dragon.x);
-    const rangeToPig = dist(dragon.x, dragon.y, pig.x, pig.y);
-    if (rangeToPig <= FIRE_RANGE && angleDiffAbs(dragonFacingAngle, angleToPig) <= FIRE_CONE_HALF_ANGLE){
-      dropBonusCoins(pig.x, pig.y);
     }
   }
 
@@ -737,7 +643,6 @@
   function endGame(){
     running = false;
     joystick.classList.add('hidden');
-    fireBtn.classList.add('hidden');
     throwBtn.classList.add('hidden');
     sfxGameOver();
     finalScoreEl.textContent = 'Score: ' + score + '  •  Time: ' + formatTime(elapsedMs);
@@ -766,7 +671,6 @@
       const n = Math.hypot(dir.dx, dir.dy);
       mx = (dir.dx/n) * inputMagnitude;
       my = (dir.dy/n) * inputMagnitude;
-      dragonFacingAngle = Math.atan2(my, mx);
     }
 
     const speed = 4.2;
@@ -876,8 +780,6 @@
         coinDrops.splice(i,1);
         score += 15;
         coins += 1;
-        fireCharge += 1;
-        updateFireBtn();
         updateHud();
         spawnBurst(c.x, c.y, '#ffd23f', 12);
         sfxCoin();
