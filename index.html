@@ -49,9 +49,11 @@
   }
   #overlay {
     position:absolute; inset:0; display:flex; flex-direction:column;
-    align-items:center; justify-content:center; text-align:center;
+    align-items:center; justify-content:flex-start; text-align:center;
     background:rgba(10,15,30,0.88); color:#fff; padding:24px;
+    overflow-y:auto; -webkit-overflow-scrolling:touch; touch-action:pan-y;
   }
+  #overlay::before, #overlay::after { content:''; flex:1 0 auto; min-height:0; }
   #overlay h1 {
     font-size:38px; margin-bottom:10px; color:#ffd23f;
     text-shadow:3px 3px 0 #c0392b;
@@ -132,7 +134,7 @@
     <button id="startBtn">START</button>
   </div>
 
-  <div id="gameOver" class="hidden" style="position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; background:rgba(10,15,30,0.92); color:#fff; padding:24px;">
+  <div id="gameOver" class="hidden" style="position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; background:rgba(10,15,30,0.92); color:#fff; padding:24px; overflow-y:auto; -webkit-overflow-scrolling:touch; touch-action:pan-y;">
     <div style="font-size:44px;">💥🐷💥</div>
     <h1 style="font-size:34px; color:#ffd23f; text-shadow:3px 3px 0 #c0392b;">BOOM! GAME OVER</h1>
     <p id="finalScore">Score: 0</p>
