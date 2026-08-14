@@ -11,6 +11,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <link rel="apple-touch-icon" href="icon-192.png">
 <link rel="icon" href="icon-192.png">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <style>
   * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color: transparent; }
   html, body {
@@ -125,6 +126,20 @@
     <div style="font-size:44px;">💥🐷💥</div>
     <h1 style="font-size:34px; color:#ffd23f; text-shadow:3px 3px 0 #c0392b;">BOOM! GAME OVER</h1>
     <p id="finalScore">Score: 0</p>
+
+    <div id="scoreSubmitBox" style="margin-top:14px;">
+      <input id="scoreNameInput" maxlength="12" placeholder="Your name" autocomplete="off"
+        style="font-family:inherit; font-weight:900; font-size:16px; padding:10px 14px; border-radius:30px; border:none; text-align:center; width:180px;">
+      <br>
+      <button id="submitScoreBtn" style="margin-top:10px; padding:10px 26px; font-size:15px; font-weight:900; background:#2ecc71; color:#08331b; border:none; border-radius:50px; cursor:pointer; box-shadow:0 4px 0 #1e8f4e; font-family: Arial Black, Arial, sans-serif;">SUBMIT SCORE</button>
+    </div>
+    <p id="scoreSubmitStatus" style="font-size:13px; color:#9be8ac; min-height:16px;"></p>
+
+    <div id="leaderboardBox" style="margin-top:6px; width:min(320px,80vw);">
+      <p style="font-size:14px; font-weight:900; color:#ffd23f; letter-spacing:1px;">🏆 TOP SCORES</p>
+      <ol id="leaderboardList" style="text-align:left; font-size:14px; padding-left:22px; margin-top:6px; color:#e8eef5;"></ol>
+    </div>
+
     <button id="restartBtn">PLAY AGAIN</button>
   </div>
 
@@ -345,6 +360,11 @@
   const overlay = document.getElementById('overlay');
   const gameOverEl = document.getElementById('gameOver');
   const finalScoreEl = document.getElementById('finalScore');
+  const scoreSubmitBox = document.getElementById('scoreSubmitBox');
+  const scoreNameInput = document.getElementById('scoreNameInput');
+  const submitScoreBtn = document.getElementById('submitScoreBtn');
+  const scoreSubmitStatus = document.getElementById('scoreSubmitStatus');
+  const leaderboardList = document.getElementById('leaderboardList');
   const startBtn = document.getElementById('startBtn');
   const restartBtn = document.getElementById('restartBtn');
   const roarBtn = document.getElementById('roarBtn');
@@ -352,6 +372,62 @@
   const joystick = document.getElementById('joystick');
   const joystickKnob = document.getElementById('joystickKnob');
   const throwBtn = document.getElementById('throwBtn');
+
+  // ---------- leaderboard (Supabase) ----------
+  const SUPABASE_URL = 'https://ljnshaoruygijgtcokwv.supabase.co';
+  const SUPABASE_ANON_KEY = 'sb_publishable_N0dbDj1DwnHrluNRyDE6TQ_ReKaYogG';
+  const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  let lastFinalScore = 0;
+  let scoreAlreadySubmitted = false;
+
+  async function submitScore(name, submittedScore){
+    submitScoreBtn.disabled = true;
+    scoreSubmitStatus.textContent = 'Submitting…';
+    const { error } = await sb.from('scores').insert({ name, score: submittedScore });
+    if (error){
+      scoreSubmitStatus.textContent = "Couldn't submit — try again.";
+      submitScoreBtn.disabled = false;
+      return;
+    }
+    scoreAlreadySubmitted = true;
+    scoreSubmitStatus.textContent = 'Submitted!';
+    scoreSubmitBox.style.display = 'none';
+    renderLeaderboard();
+  }
+
+  submitScoreBtn.addEventListener('click', () => {
+    if (scoreAlreadySubmitted) return;
+    const name = scoreNameInput.value.trim().slice(0,12);
+    if (!name){
+      scoreSubmitStatus.textContent = 'Enter a name first.';
+      return;
+    }
+    submitScore(name, lastFinalScore);
+  });
+
+  async function renderLeaderboard(){
+    leaderboardList.innerHTML = '<li>Loading…</li>';
+    const { data, error } = await sb
+      .from('scores')
+      .select('name,score')
+      .order('score', { ascending:false })
+      .limit(10);
+    if (error || !data){
+      leaderboardList.innerHTML = '<li>Leaderboard unavailable</li>';
+      return;
+    }
+    if (data.length === 0){
+      leaderboardList.innerHTML = '<li>No scores yet — be the first!</li>';
+      return;
+    }
+    leaderboardList.innerHTML = data
+      .map(row => `<li>${escapeHtml(row.name)} — ${row.score}</li>`)
+      .join('');
+  }
+
+  function escapeHtml(s){
+    return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
 
   // ---------- state ----------
   let score = 0;
@@ -694,6 +770,14 @@
     sfxGameOver();
     finalScoreEl.textContent = 'Score: ' + score + '  •  Time: ' + formatTime(elapsedMs);
     gameOverEl.classList.remove('hidden');
+
+    lastFinalScore = score;
+    scoreAlreadySubmitted = false;
+    scoreSubmitBox.style.display = '';
+    scoreNameInput.value = '';
+    scoreSubmitStatus.textContent = '';
+    submitScoreBtn.disabled = false;
+    renderLeaderboard();
   }
 
   function update(dt){
