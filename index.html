@@ -529,14 +529,21 @@
 
   // input
   const keys = {};
+  function isTypingTarget(el){
+    return el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable);
+  }
   window.addEventListener('keydown', e => {
+    if (isTypingTarget(e.target)) return;
     keys[e.key.toLowerCase()] = true;
     if (e.code === 'KeyE' || e.key.toLowerCase() === 'e'){
       e.preventDefault();
       throwBurger();
     }
   });
-  window.addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; });
+  window.addEventListener('keyup', e => {
+    if (isTypingTarget(e.target)) return;
+    keys[e.key.toLowerCase()] = false;
+  });
 
   // on-screen joystick — works for touch, mouse, and pen via the unified Pointer Events API
   let joyActive = false;
