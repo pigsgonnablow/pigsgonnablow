@@ -397,15 +397,13 @@
   const JUMP_ARC_HEIGHT = 110; // visual peak height of the jump, px
 
   const DRAGON_BASE_SIZE = 42;
-  const DRAGON_GROWTH_CAP = 0.9; // max +90% size (nearly double), reached at DRAGON_GROWTH_BURGERS fed
-  const DRAGON_GROWTH_BURGERS = 100;
-  let totalBurgersFed = 0;
+  const DRAGON_GROWTH_CAP = 0.9; // max +90% size (nearly double)
+  const DRAGON_GROWTH_PER_EXPLOSION = 0.15; // dragon steps up 15% bigger each time the pig blows
 
   const dragon = { x: W/2, y: H*0.72, size: DRAGON_BASE_SIZE, vx:0, vy:0 };
 
   function updateDragonSize(){
-    const t = Math.min(totalBurgersFed, DRAGON_GROWTH_BURGERS) / DRAGON_GROWTH_BURGERS;
-    const multiplier = 1 + DRAGON_GROWTH_CAP * Math.sqrt(t);
+    const multiplier = 1 + Math.min(roundsSurvived * DRAGON_GROWTH_PER_EXPLOSION, DRAGON_GROWTH_CAP);
     dragon.size = DRAGON_BASE_SIZE * multiplier;
   }
 
@@ -513,7 +511,6 @@
     throwBtn.classList.add('hidden');
     warningEl.style.display = 'none';
     carrying = false; invuln = 0;
-    totalBurgersFed = 0;
     elapsedMs = 0;
     roundsSurvived = 0;
     shockMaxRadius = SHOCK_RADIUS_BASE;
@@ -582,6 +579,7 @@
     shockMaxRadius = Math.min(SHOCK_RADIUS_BASE + roundsSurvived*SHOCK_RADIUS_GROWTH_PER_ROUND, SHOCK_RADIUS_CAP);
     shockSpeed = Math.min(SHOCK_SPEED_BASE + roundsSurvived*SHOCK_SPEED_GROWTH_PER_ROUND, SHOCK_SPEED_CAP);
     roundsSurvived++;
+    updateDragonSize();
     spawnBurst(pig.x, pig.y, '#ffb703', 40);
     spawnBurst(pig.x, pig.y, '#ff6b6b', 30);
     sfxExplosion();
@@ -605,8 +603,6 @@
   // fed the pig one burger" and should have identical effects.
   function feedPigSuccess(){
     feedProgress++;
-    totalBurgersFed++;
-    updateDragonSize();
     score += 10;
     updateHud();
     spawnBurst(pig.x, pig.y - 10, '#ffd23f', 10);
