@@ -73,6 +73,25 @@
   #startBtn:active, #restartBtn:active { box-shadow:0 2px 0 #c98e00; transform:translateY(4px); }
   #finalScore { font-size:22px; margin:10px 0 0 0; color:#ffd23f; font-weight:900; }
   .hidden { display:none !important; }
+  #accountBox {
+    width:min(280px,80vw); margin-top:16px; padding:12px 14px;
+    background:rgba(255,255,255,0.06); border-radius:14px;
+    font-size:13px; color:#e8eef5;
+  }
+  #accountBox input {
+    font-family:inherit; font-weight:900; font-size:14px; padding:8px 12px;
+    border-radius:20px; border:none; text-align:center; width:100%; margin-top:8px;
+  }
+  #accountBox button {
+    font-family: Arial Black, Arial, sans-serif; font-weight:900; font-size:13px;
+    padding:8px 18px; margin-top:8px; border:none; border-radius:20px; cursor:pointer;
+    background:#2ecc71; color:#08331b; box-shadow:0 3px 0 #1e8f4e;
+  }
+  #accountBox button.secondary {
+    background:transparent; color:#e8eef5; box-shadow:none; text-decoration:underline;
+    font-size:11px; padding:4px;
+  }
+  #accountStatus { font-size:12px; color:#9be8ac; min-height:14px; margin-top:6px; }
   #joystick {
     position:fixed; left:24px; bottom:24px; /* fallback; JS anchors this to the canvas's actual bounds */
     width:120px; height:120px; border-radius:50%;
@@ -120,6 +139,28 @@
     <p>🎮 Use the joystick (bottom-left) or arrow keys / WASD to move the dragon.</p>
     <p>🍔 Spend 5 coins to throw your burger at the pig from range — press E or tap THROW!</p>
     <button id="startBtn">START</button>
+    <button id="viewLeaderboardBtn" style="margin-top:10px; padding:10px 22px; font-size:14px; font-weight:900; background:transparent; color:#ffd23f; border:2px solid #ffd23f; border-radius:50px; cursor:pointer; font-family: Arial Black, Arial, sans-serif;">🏆 LEADERBOARD</button>
+
+    <div id="accountBox">
+      <div id="accountSignedOut">
+        <p style="font-size:12px; color:#9be8ac; margin-bottom:2px;">Sign in to save your personal best</p>
+        <button id="accountSignInBtn">LOGIN</button>
+        <div id="accountEmailForm" class="hidden">
+          <input id="accountEmailInput" type="email" placeholder="you@example.com" autocomplete="email">
+          <button id="accountSendLinkBtn">SEND LOGIN LINK</button>
+        </div>
+      </div>
+      <div id="accountNeedsName" class="hidden">
+        <p>Welcome! Pick a name for the leaderboard:</p>
+        <input id="displayNameInput" maxlength="12" placeholder="Your name" autocomplete="off">
+        <button id="saveDisplayNameBtn">SAVE</button>
+      </div>
+      <div id="accountSignedIn" class="hidden">
+        <p>Playing as <strong id="accountName"></strong></p>
+        <button id="signOutBtn" class="secondary">Sign out</button>
+      </div>
+      <p id="accountStatus"></p>
+    </div>
   </div>
 
   <div id="gameOver" class="hidden" style="position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; background:rgba(10,15,30,0.92); color:#fff; padding:24px; overflow-y:auto; -webkit-overflow-scrolling:touch; touch-action:pan-y;">
@@ -143,6 +184,12 @@
     <button id="restartBtn">PLAY AGAIN</button>
   </div>
 
+  <div id="leaderboardPreview" class="hidden" style="position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; background:rgba(10,15,30,0.92); color:#fff; padding:24px; overflow-y:auto; -webkit-overflow-scrolling:touch; touch-action:pan-y;">
+    <p style="font-size:18px; font-weight:900; color:#ffd23f; letter-spacing:1px;">🏆 TOP SCORES</p>
+    <ol id="leaderboardPreviewList" style="text-align:left; font-size:15px; padding-left:22px; margin-top:12px; color:#e8eef5; width:min(320px,80vw);"></ol>
+    <button id="leaderboardPreviewBackBtn" style="margin-top:18px; padding:14px 34px; font-size:18px; font-weight:900; background:#ffd23f; color:#7a2e00; border:none; border-radius:50px; cursor:pointer; box-shadow:0 6px 0 #c98e00; font-family: Arial Black, Arial, sans-serif;">BACK</button>
+  </div>
+
   <div id="joystick" class="hidden">
     <div id="joystickKnob"></div>
   </div>
@@ -160,6 +207,7 @@ import {
   sfxCoin, sfxHit, sfxBonus, sfxGameOver, sfxOink, sfxRoar
 } from './js/audio.js';
 import { createLeaderboard } from './js/leaderboard.js';
+import { createAuth } from './js/auth.js';
 
 (function(){
   const canvas = document.getElementById('game');
@@ -177,6 +225,7 @@ import { createLeaderboard } from './js/leaderboard.js';
   canvas.width = CANVAS_W;
   canvas.height = CANVAS_H;
 
+  const hudEl = document.getElementById('hud');
   const scoreEl = document.getElementById('score');
   const coinsEl = document.getElementById('coins');
   const timerEl = document.getElementById('timer');
@@ -190,6 +239,10 @@ import { createLeaderboard } from './js/leaderboard.js';
   const submitScoreBtn = document.getElementById('submitScoreBtn');
   const scoreSubmitStatus = document.getElementById('scoreSubmitStatus');
   const leaderboardList = document.getElementById('leaderboardList');
+  const leaderboardPreview = document.getElementById('leaderboardPreview');
+  const leaderboardPreviewList = document.getElementById('leaderboardPreviewList');
+  const viewLeaderboardBtn = document.getElementById('viewLeaderboardBtn');
+  const leaderboardPreviewBackBtn = document.getElementById('leaderboardPreviewBackBtn');
   const startBtn = document.getElementById('startBtn');
   const restartBtn = document.getElementById('restartBtn');
   const roarBtn = document.getElementById('roarBtn');
@@ -198,10 +251,15 @@ import { createLeaderboard } from './js/leaderboard.js';
   const joystickKnob = document.getElementById('joystickKnob');
   const throwBtn = document.getElementById('throwBtn');
 
-  // ---------- leaderboard (Supabase) ----------
+  // ---------- account (Supabase Auth) + leaderboard (Supabase) ----------
+  const SUPABASE_URL = 'https://ljnshaoruygijgtcokwv.supabase.co';
+  const SUPABASE_ANON_KEY = 'sb_publishable_N0dbDj1DwnHrluNRyDE6TQ_ReKaYogG';
+
+  const auth = createAuth({ url: SUPABASE_URL, anonKey: SUPABASE_ANON_KEY });
   const leaderboard = createLeaderboard({
-    url: 'https://ljnshaoruygijgtcokwv.supabase.co',
-    anonKey: 'sb_publishable_N0dbDj1DwnHrluNRyDE6TQ_ReKaYogG',
+    url: SUPABASE_URL,
+    anonKey: SUPABASE_ANON_KEY,
+    auth,
     elements: {
       submitBtn: submitScoreBtn,
       nameInput: scoreNameInput,
@@ -210,6 +268,51 @@ import { createLeaderboard } from './js/leaderboard.js';
       submitBox: scoreSubmitBox
     }
   });
+
+  // ---------- account UI ----------
+  const accountSignedOut = document.getElementById('accountSignedOut');
+  const accountEmailForm = document.getElementById('accountEmailForm');
+  const accountSignInBtn = document.getElementById('accountSignInBtn');
+  const accountEmailInput = document.getElementById('accountEmailInput');
+  const accountSendLinkBtn = document.getElementById('accountSendLinkBtn');
+  const accountNeedsName = document.getElementById('accountNeedsName');
+  const displayNameInput = document.getElementById('displayNameInput');
+  const saveDisplayNameBtn = document.getElementById('saveDisplayNameBtn');
+  const accountSignedIn = document.getElementById('accountSignedIn');
+  const accountName = document.getElementById('accountName');
+  const signOutBtn = document.getElementById('signOutBtn');
+  const accountStatus = document.getElementById('accountStatus');
+
+  accountSignInBtn.addEventListener('click', () => {
+    accountEmailForm.classList.toggle('hidden');
+  });
+  accountSendLinkBtn.addEventListener('click', async () => {
+    const email = accountEmailInput.value.trim();
+    if (!email){ accountStatus.textContent = 'Enter an email first.'; return; }
+    accountSendLinkBtn.disabled = true;
+    accountStatus.textContent = 'Sending…';
+    const { error } = await auth.sendMagicLink(email);
+    accountSendLinkBtn.disabled = false;
+    accountStatus.textContent = error ? error : 'Check your email for a login link!';
+  });
+  saveDisplayNameBtn.addEventListener('click', async () => {
+    const name = displayNameInput.value.trim().slice(0,12);
+    if (!name){ accountStatus.textContent = 'Enter a name first.'; return; }
+    saveDisplayNameBtn.disabled = true;
+    const { error } = await auth.setDisplayName(name);
+    saveDisplayNameBtn.disabled = false;
+    accountStatus.textContent = error || '';
+  });
+  signOutBtn.addEventListener('click', () => auth.signOut());
+
+  auth.onChange(({ session, profile }) => {
+    accountSignedOut.classList.toggle('hidden', !!session);
+    accountNeedsName.classList.toggle('hidden', !(session && !profile));
+    accountSignedIn.classList.toggle('hidden', !(session && profile));
+    if (session && profile) accountName.textContent = (profile.avatar ? profile.avatar + ' ' : '') + profile.display_name;
+    if (session) accountStatus.textContent = '';
+  });
+  auth.init();
 
   // ---------- state ----------
   let score = 0;
@@ -239,8 +342,8 @@ import { createLeaderboard } from './js/leaderboard.js';
   let elapsedMs = 0;
   let roundsSurvived = 0;
 
-  const SHOCK_RADIUS_BASE = 260;
-  const SHOCK_RADIUS_GROWTH_PER_ROUND = 15;
+  const SHOCK_RADIUS_BASE = 170;
+  const SHOCK_RADIUS_GROWTH_PER_ROUND = 20;
   const SHOCK_RADIUS_CAP = 420;
   const SHOCK_SPEED_BASE = 14;
   const SHOCK_SPEED_GROWTH_PER_ROUND = 0.8;
@@ -263,9 +366,9 @@ import { createLeaderboard } from './js/leaderboard.js';
       alpha: rand(0.65,0.9)
     });
   }
-  function updateClouds(){
+  function updateClouds(frameScale){
     for (const c of clouds){
-      c.x += c.speed;
+      c.x += c.speed*frameScale;
       if (c.x - c.size*2 > CANVAS_W) c.x = -c.size*2;
     }
   }
@@ -396,9 +499,20 @@ import { createLeaderboard } from './js/leaderboard.js';
       throwBtn.style.top = Math.round(rect.bottom - margin - btnH) + 'px';
     }
   }
+  // Same letterboxing issue as the joystick/throw button above: #hud was pinned to the
+  // viewport's top edge via CSS, so on a viewport whose aspect ratio doesn't match the
+  // canvas's, the score/timer/lives landed in the dark letterbox bar above the canvas
+  // instead of over the sky. Anchor it to the canvas's actual top edge instead.
+  function positionHud(){
+    const rect = canvas.getBoundingClientRect();
+    hudEl.style.top = Math.round(rect.top) + 'px';
+    hudEl.style.left = Math.round(rect.left) + 'px';
+    hudEl.style.right = Math.round(window.innerWidth - rect.right) + 'px';
+  }
   function positionOverlayControls(){
     positionJoystick();
     positionThrowBtn();
+    positionHud();
   }
   window.addEventListener('resize', positionOverlayControls);
   positionOverlayControls();
@@ -563,7 +677,7 @@ import { createLeaderboard } from './js/leaderboard.js';
     leaderboard.onGameOver(score);
   }
 
-  function update(dt){
+  function update(frameScale){
     // --- movement ---
     let mx=0, my=0;
     let kx=0, ky=0; // screen-relative direction (up/down/left/right as seen)
@@ -589,14 +703,16 @@ import { createLeaderboard } from './js/leaderboard.js';
 
     const speed = 4.2;
     const ACCEL = 0.3; // how quickly velocity eases toward the target each frame — gives the dragon a bit of slide instead of stopping dead
-    dragon.vx += (mx*speed - dragon.vx) * ACCEL;
-    dragon.vy += (my*speed - dragon.vy) * ACCEL;
-    dragon.x += dragon.vx;
-    dragon.y += dragon.vy;
+    // ease factor is scaled so the same real-world time produces the same amount of easing regardless of frame rate
+    const accelThisFrame = 1 - Math.pow(1 - ACCEL, frameScale);
+    dragon.vx += (mx*speed - dragon.vx) * accelThisFrame;
+    dragon.vy += (my*speed - dragon.vy) * accelThisFrame;
+    dragon.x += dragon.vx * frameScale;
+    dragon.y += dragon.vy * frameScale;
     dragon.x = Math.max(dragon.size*0.5, Math.min(W-dragon.size*0.5, dragon.x));
     dragon.y = Math.max(dragon.size*0.5, Math.min(H-dragon.size*0.5, dragon.y));
 
-    if (invuln > 0) invuln--;
+    if (invuln > 0) invuln -= frameScale;
 
     // --- ground burger pickup ---
     if (!carrying){
@@ -621,7 +737,7 @@ import { createLeaderboard } from './js/leaderboard.js';
     // --- thrown burger projectiles ---
     for (let i=burgerProjectiles.length-1;i>=0;i--){
       const b = burgerProjectiles[i];
-      b.x += b.vx; b.y += b.vy; b.rot += 0.3; b.life--;
+      b.x += b.vx*frameScale; b.y += b.vy*frameScale; b.rot += 0.3*frameScale; b.life -= frameScale;
       if (pigState === 'idle' && withinScreenRange(b.x,b.y,pig.x,pig.y, pig.baseSize*0.6*pigVisualScale())){
         burgerProjectiles.splice(i,1);
         feedPigSuccess();
@@ -632,9 +748,9 @@ import { createLeaderboard } from './js/leaderboard.js';
     updateThrowBtn();
 
     // --- pig states ---
-    pig.wobble += 0.15;
+    pig.wobble += 0.15*frameScale;
     if (pigState === 'jumping'){
-      jumpTimer--;
+      jumpTimer -= frameScale;
       const t = 1 - Math.max(jumpTimer,0) / JUMP_DURATION;
       pig.x = pig.jumpStartX + (pig.targetX - pig.jumpStartX) * t;
       pig.y = pig.jumpStartY + (pig.targetY - pig.jumpStartY) * t;
@@ -645,7 +761,7 @@ import { createLeaderboard } from './js/leaderboard.js';
         explodePig();
       }
     } else if (pigState === 'exploding'){
-      shockRadius += shockSpeed;
+      shockRadius += shockSpeed*frameScale;
       checkPlayerHit();
       if (shockRadius > shockMaxRadius){
         pigState = 'cooldown';
@@ -655,16 +771,17 @@ import { createLeaderboard } from './js/leaderboard.js';
         burgersToFull = Math.max(3, 5 - Math.floor(score/120));
       }
     } else if (pigState === 'cooldown'){
-      cooldownTimer--;
+      cooldownTimer -= frameScale;
       if (cooldownTimer <= 0) pigState = 'idle';
     }
 
     // --- coin physics ---
     for (const c of coinDrops){
       if (c.landed) continue;
-      c.x += c.vx; c.y += c.vy;
-      c.vx *= 0.96; c.vy *= 0.96;
-      c.rot += 0.2;
+      c.x += c.vx*frameScale; c.y += c.vy*frameScale;
+      const drag = Math.pow(0.96, frameScale);
+      c.vx *= drag; c.vy *= drag;
+      c.rot += 0.2*frameScale;
       if (Math.abs(c.vx) < 0.3 && Math.abs(c.vy) < 0.3){
         c.landed = true;
         c.x = Math.max(30, Math.min(W-30, c.x));
@@ -677,7 +794,7 @@ import { createLeaderboard } from './js/leaderboard.js';
     for (let i=coinDrops.length-1;i>=0;i--){
       const c = coinDrops[i];
       if (c.landed){
-        c.lifeFrames--;
+        c.lifeFrames -= frameScale;
         if (c.lifeFrames <= 0){
           coinDrops.splice(i,1);
           const batch = coinBatches[c.batchId];
@@ -722,25 +839,25 @@ import { createLeaderboard } from './js/leaderboard.js';
       }
     }
     if (bonusMsgTimer > 0){
-      bonusMsgTimer--;
+      bonusMsgTimer -= frameScale;
       if (bonusMsgTimer <= 0) warningEl.style.display = 'none';
     }
 
     // --- particles ---
     for (let i=particles.length-1;i>=0;i--){
       const p = particles[i];
-      p.x += p.vx; p.y += p.vy; p.vy += 0.15; p.life -= 0.02;
+      p.x += p.vx*frameScale; p.y += p.vy*frameScale; p.vy += 0.15*frameScale; p.life -= 0.02*frameScale;
       if (p.life <= 0) particles.splice(i,1);
     }
 
     // --- spawn new ground burgers ---
-    spawnTimer--;
+    spawnTimer -= frameScale;
     if (spawnTimer <= 0 && groundBurgers.length < 4 && pigState !== 'exploding'){
       spawnGroundBurger();
       spawnTimer = 60 + Math.random()*60;
     }
 
-    updateClouds();
+    updateClouds(frameScale);
   }
 
   // ---------- drawing ----------
@@ -968,9 +1085,14 @@ import { createLeaderboard } from './js/leaderboard.js';
   function loop(t){
     if (!running) return;
     const dt = t - lastTime; lastTime = t;
+    // Tuning values below were authored assuming a steady 60fps (one implicit "frame" = 16.67ms).
+    // Converting dt to a frame-equivalent multiplier lets every timer/velocity keep its original
+    // per-frame constant while still running at the correct real-world speed on any refresh rate.
+    // Capped so a stalled tab/slow frame doesn't cause a huge catch-up jump on resume.
+    const frameScale = Math.min(dt / (1000/60), 3);
     elapsedMs = t - startTime;
     timerEl.textContent = formatTime(elapsedMs);
-    update(dt);
+    update(frameScale);
     draw();
     requestAnimationFrame(loop);
   }
@@ -1005,6 +1127,16 @@ import { createLeaderboard } from './js/leaderboard.js';
     lastTime = performance.now();
     startTime = lastTime;
     requestAnimationFrame(loop);
+  });
+
+  viewLeaderboardBtn.addEventListener('click', () => {
+    overlay.classList.add('hidden');
+    leaderboardPreview.classList.remove('hidden');
+    leaderboard.renderInto(leaderboardPreviewList);
+  });
+  leaderboardPreviewBackBtn.addEventListener('click', () => {
+    leaderboardPreview.classList.add('hidden');
+    overlay.classList.remove('hidden');
   });
 
   // initial static draw behind overlay
