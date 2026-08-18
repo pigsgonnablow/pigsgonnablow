@@ -58,3 +58,13 @@ Running log of notable changes, kept during dev sessions for reference.
   yet) — modeled as its own `profiles.avatar` column specifically so a future color/character
   picker only has to change this one value; anonymous (non-account) rows just show no avatar.
   New file: `supabase_avatars_schema.sql` (needs to be run in the Supabase SQL editor).
+- Fixed a serious `sw.js` bug (production only -- the service worker doesn't register on
+  localhost, so local testing never caught it): the cache-first `fetch` handler intercepted
+  *every* request from the page, including cross-origin Supabase API calls, despite a comment
+  claiming it only applied to "same-origin GET requests" -- the code never actually checked
+  that. The first leaderboard fetch got cached and was served stale forever after, no matter
+  how fresh the data on the server was. This explains every "board didn't update" symptom
+  seen today, including ones the render-generation-token fix couldn't touch since the browser
+  never even made a new network request. Now cross-origin and non-GET requests bypass the
+  service worker entirely. Cache name bumped to force-clear any already-poisoned cached
+  responses from before this fix.

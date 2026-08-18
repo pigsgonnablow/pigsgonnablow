@@ -1,4 +1,4 @@
-const CACHE_NAME = 'burger-pig-v4';
+const CACHE_NAME = 'burger-pig-v5';
 const ASSETS = [
   './',
   './index.html',
@@ -29,11 +29,18 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
+  // The cache-first strategy below is only for this app's own static assets. Without this
+  // origin check it also intercepted cross-origin API calls (Supabase) -- the first leaderboard
+  // fetch would get cached and silently served stale forever after, no matter how fresh the
+  // data on the server actually was. Let every cross-origin request (and non-GET requests)
+  // go straight to the network, untouched.
+  const url = new URL(event.request.url);
+  if (url.origin !== self.location.origin || event.request.method !== 'GET') return;
+
   event.respondWith(
     caches.match(event.request).then((cached) => {
       return cached || fetch(event.request).then((response) => {
-        // cache new same-origin GET requests as we go
-        if (event.request.method === 'GET' && response.ok) {
+        if (response.ok) {
           const clone = response.clone();
           caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
         }
