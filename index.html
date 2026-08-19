@@ -462,7 +462,7 @@ import { createShop } from './js/shop.js';
   // faceX: -1 = facing screen-left, 1 = facing screen-right. Kept separately from `facing`
   // so that moving straight up/down doesn't lose (or randomly flip) the left/right profile.
   // pitch: eased -1..1 (nose-up .. nose-down), driven by up/down input — see drawSingleDragon.
-  const dragon = { x: W/2, y: H*0.72, size: DRAGON_BASE_SIZE, vx:0, vy:0, facing:'right', faceX:1, pitch:0 };
+  const dragon = { x: W/2, y: H*0.72, size: DRAGON_BASE_SIZE, vx:0, vy:0, faceX:1, pitch:0 };
 
   function updateDragonSize(){
     const multiplier = 1 + Math.min(roundsSurvived * DRAGON_GROWTH_PER_EXPLOSION, DRAGON_GROWTH_CAP);
@@ -763,13 +763,17 @@ import { createShop } from './js/shop.js';
       // dx/dy above -- the iso projection skews world axes, so using the world direction
       // here would turn the dragon to face diagonally even when the player is pressing
       // a straight screen-relative up/down/left/right.
-      dragon.facing = Math.abs(kx) >= Math.abs(ky) ? (kx < 0 ? 'left' : 'right') : (ky < 0 ? 'up' : 'down');
       if (kx) dragon.faceX = kx < 0 ? -1 : 1;
     }
 
-    // Ease the nose-up/nose-down pitch every frame (not just while a key is held) so the
-    // dragon banks into the turn instead of snapping between poses.
-    const targetPitch = dragon.facing === 'up' ? -1 : dragon.facing === 'down' ? 1 : 0;
+    // Pitch is driven continuously by how much vertical input there is (kx/ky, not just
+    // a discrete up/down/left/right pick) -- with a joystick almost every move has some
+    // diagonal component, and picking a single dominant axis meant the pitch pose barely
+    // ever showed up in practice. This way any upward/downward component blends the pitch
+    // in immediately, on top of whatever left/right mirror is already showing. Eases every
+    // frame (not just while a key is held) so it banks into the turn instead of snapping,
+    // and relaxes back to level when there's no vertical input at all.
+    const targetPitch = ky;
     dragon.pitch += (targetPitch - dragon.pitch) * (1 - Math.pow(1 - 0.22, frameScale));
 
     const speed = 4.2;
@@ -1091,12 +1095,17 @@ import { createShop } from './js/shop.js';
     // away). That reads as a deliberate flying pose while keeping the full dragon shape.
     // All of it is in its own save/restore so the burger drawn above isn't transformed too.
     ctx.save();
-    const PITCH_ANGLE = 0.45;   // ~26 degrees at full up/down; enough to read, not enough to tip over
-    const PITCH_DEPTH = 0.08;   // shrink heading away from the camera, grow heading toward it
+    const PITCH_ANGLE = 0.6;    // ~34 degrees at full up/down; enough to read, not enough to tip over
+    const PITCH_DEPTH = 0.12;   // shrink heading away from the camera, grow heading toward it
     ctx.scale(-dragon.faceX, 1); // glyph natively faces left, so faceX=1 (right) is the mirrored one
     if (dragon.pitch) {
-      // Applied inside the mirrored frame, so the same sign is nose-up for both profiles.
-      ctx.rotate(dragon.pitch * PITCH_ANGLE);
+      // Rotation is applied here, inside the ctx.scale(-faceX,1) mirror set up above --
+      // canvas transforms compose so the rotation happens first and the mirror is applied
+      // on top of it, and mirroring flips the visual direction of a rotation's vertical
+      // component. Negate the angle to correct for that, or "up" input visibly dives the
+      // dragon downward instead of climbing (confirmed by working through the transform
+      // math after a live report that pitch felt inverted on both joystick and keyboard).
+      ctx.rotate(-dragon.pitch * PITCH_ANGLE);
       const s = 1 + dragon.pitch * PITCH_DEPTH;
       ctx.scale(s, s);
     }

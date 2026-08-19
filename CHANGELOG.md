@@ -35,6 +35,18 @@ Running log of notable changes, kept during dev sessions for reference.
 - Coins now despawn slightly faster in later rounds (same round-survived counter the
   shockwave uses): 8s lifetime at the start, shrinking ~0.2s per round survived, floored
   at ~5s so it stays a mild nudge rather than becoming punishing.
+- Fixed the dragon's up/down pitch (added above) almost never actually showing during
+  real play: it picked a single dominant axis (left/right OR up/down), and a joystick
+  is almost never perfectly vertical, so up/down basically never won that comparison.
+  Pitch is now driven continuously by however much vertical input there is, blending in
+  even during diagonal movement, and the tilt/scale was bumped up (26°/8% -> 34%/12%)
+  to read more clearly.
+- Fixed the pitch direction itself being inverted (pressing "up" dove the dragon
+  downward, and vice versa) on both joystick and keyboard. Root cause: the pitch
+  rotation was applied inside the same canvas transform as the left/right mirror, and
+  mirroring flips the visual direction of a rotation's vertical component -- so the
+  rotation needed to be negated to compensate. Confirmed by working through the actual
+  transform matrices, then verified live in the browser.
 
 ## 2026-08-18
 
