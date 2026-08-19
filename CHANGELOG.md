@@ -2,6 +2,40 @@
 
 Running log of notable changes, kept during dev sessions for reference.
 
+## 2026-08-19
+
+- Added an in-run "✕ EXIT" button (top-left of the HUD, under the score) that stops the
+  current run and returns to the title screen.
+- Added a skin shop: a "🛒 SHOP" button next to LEADERBOARD on the title screen opens a
+  screen listing all catalog skins, showing Owned/Equipped state and letting a signed-in
+  player equip anything they own via the `equip_skin` RPC. Buying isn't wired up yet
+  (no Stripe Checkout/webhook exists server-side), so priced skins show a disabled
+  "COMING SOON" button for now. New files: `js/shop.js`, `supabase_skins_schema.sql`
+  (run in the Supabase SQL editor -- adds the `skins` catalog, `owned_skins`
+  entitlements table, and `profiles.equipped_skin_id`; seeded with the free default
+  dragon plus two Stripe-sandbox-priced test skins).
+- Fixed the shop's "Equipped" state never showing (buttons stuck on "EQUIP" even for the
+  currently-equipped skin). Two bugs: `auth.js` never fetched `profiles.equipped_skin_id`
+  at all, and even after fixing that, `equip_skin`'s RPC writes straight to the DB while
+  `auth.js` caches the profile in memory -- nothing told it to refetch after an equip.
+  Added `auth.refreshProfile()`, called by the shop right after a successful equip.
+- Gave the dragon 4-direction facing instead of always facing right. Left/right mirror
+  the glyph horizontally (and fixed a bug where left/right were backwards, since the
+  raw dragon emoji's native artwork already faces left). Up/down don't rotate the glyph
+  90° (that just made it lie on its side) -- instead the dragon pitches ~26deg with a
+  slight scale-up, eased in over a few frames, so climbing/diving reads as a deliberate
+  bank rather than a glitch. Left/right facing persists through pure up/down input so it
+  never loses its profile.
+- Retuned the pig's shockwave so late-game runs stop feeling unwinnable: radius cap
+  420->300 (was nearly spanning the 600px-wide play area once maxed), radius growth
+  20/round->10/round, speed cap 26->20, speed growth 0.8/round->0.5/round. Also slowed
+  how fast the pig needs fewer burgers to explode (feed-difficulty threshold every 120
+  score->every 200 score), so the harder feed rate and the harder shockwave stop
+  compounding as quickly.
+- Coins now despawn slightly faster in later rounds (same round-survived counter the
+  shockwave uses): 8s lifetime at the start, shrinking ~0.2s per round survived, floored
+  at ~5s so it stays a mild nudge rather than becoming punishing.
+
 ## 2026-08-18
 
 - Fixed frame-rate-dependent physics: all per-frame movement/timers in `update()` (dragon

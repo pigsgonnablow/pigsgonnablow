@@ -21,7 +21,7 @@ export function createAuth({ url, anonKey }){
     try {
       const { data, error } = await sb
         .from('profiles')
-        .select('display_name,avatar')
+        .select('display_name,avatar,equipped_skin_id')
         .eq('user_id', session.user.id)
         .maybeSingle();
       if (error) console.error('[auth] loadProfile failed:', error.message);
@@ -91,8 +91,16 @@ export function createAuth({ url, anonKey }){
     return { error: null };
   }
 
+  // For callers (e.g. the shop, after equip_skin) that write to `profiles` directly via their
+  // own RPC/query rather than through setDisplayName -- the local cache above has no other way
+  // to find out, so it would otherwise keep serving stale data until the next sign-in.
+  async function refreshProfile(){
+    await loadProfile();
+    notify();
+  }
+
   function getClient(){ return sb; }
   function getState(){ return { session, profile }; }
 
-  return { init, onChange, sendMagicLink, signOut, setDisplayName, getClient, getState };
+  return { init, onChange, sendMagicLink, signOut, setDisplayName, refreshProfile, getClient, getState };
 }

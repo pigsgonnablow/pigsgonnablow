@@ -37,7 +37,17 @@
     text-shadow: 2px 2px 0 #000, -1px -1px 0 #000;
     letter-spacing:0.5px;
   }
+  #hudLeft { display:flex; flex-direction:column; align-items:flex-start; gap:6px; }
   #score { font-size:26px; }
+  #exitBtn {
+    pointer-events:auto;
+    font-family: Arial Black, Arial, sans-serif;
+    font-size:11px; font-weight:900; letter-spacing:0.5px;
+    color:#fff; background:rgba(0,0,0,0.35); border:1px solid rgba(255,255,255,0.5);
+    border-radius:20px; padding:4px 10px; cursor:pointer;
+    text-shadow:none;
+  }
+  #exitBtn:active { background:rgba(0,0,0,0.55); }
   #coins { font-size:22px; color:#ffd23f; }
   #timer { font-size:22px; }
   #lives { font-size:22px; }
@@ -92,6 +102,23 @@
     font-size:11px; padding:4px;
   }
   #accountStatus { font-size:12px; color:#9be8ac; min-height:14px; margin-top:6px; }
+  .skinCard {
+    display:flex; align-items:center; gap:12px;
+    background:rgba(255,255,255,0.06); border-radius:14px;
+    padding:10px 14px; text-align:left;
+  }
+  .skinCard.equipped { background:rgba(46,204,113,0.18); border:1px solid rgba(46,204,113,0.5); }
+  .skinCard .skinEmoji { font-size:30px; flex:none; width:38px; text-align:center; }
+  .skinCard .skinInfo { flex:1; min-width:0; }
+  .skinCard .skinName { font-size:14px; font-weight:900; color:#fff; }
+  .skinCard .skinPrice { font-size:12px; color:#9be8ac; margin-top:2px; }
+  .skinCard button {
+    flex:none; font-family: Arial Black, Arial, sans-serif; font-weight:900; font-size:12px;
+    padding:8px 14px; border:none; border-radius:20px; cursor:pointer;
+    background:#2ecc71; color:#08331b; box-shadow:0 3px 0 #1e8f4e;
+  }
+  .skinCard button:disabled { background:rgba(255,255,255,0.15); color:#9aa7c2; box-shadow:none; cursor:default; }
+  .skinCard button.buy { background:#ffd23f; color:#7a2e00; box-shadow:0 3px 0 #c98e00; }
   #joystick {
     position:fixed; left:24px; bottom:24px; /* fallback; JS anchors this to the canvas's actual bounds */
     width:120px; height:120px; border-radius:50%;
@@ -124,7 +151,10 @@
 <div id="wrap">
   <canvas id="game"></canvas>
   <div id="hud">
-    <div id="score">SCORE: 0</div>
+    <div id="hudLeft">
+      <div id="score">SCORE: 0</div>
+      <button id="exitBtn" title="Exit to title">✕ EXIT</button>
+    </div>
     <div id="coins">🪙 0</div>
     <div id="timer">0:00.0</div>
     <div id="lives">❤️❤️❤️</div>
@@ -139,7 +169,10 @@
     <p>🎮 Use the joystick (bottom-left) or arrow keys / WASD to move the dragon.</p>
     <p>🍔 Spend 5 coins to throw your burger at the pig from range — press E or tap THROW!</p>
     <button id="startBtn">START</button>
-    <button id="viewLeaderboardBtn" style="margin-top:10px; padding:10px 22px; font-size:14px; font-weight:900; background:transparent; color:#ffd23f; border:2px solid #ffd23f; border-radius:50px; cursor:pointer; font-family: Arial Black, Arial, sans-serif;">🏆 LEADERBOARD</button>
+    <div style="display:flex; gap:10px; margin-top:10px;">
+      <button id="viewLeaderboardBtn" style="padding:10px 22px; font-size:14px; font-weight:900; background:transparent; color:#ffd23f; border:2px solid #ffd23f; border-radius:50px; cursor:pointer; font-family: Arial Black, Arial, sans-serif;">🏆 LEADERBOARD</button>
+      <button id="viewShopBtn" style="padding:10px 22px; font-size:14px; font-weight:900; background:transparent; color:#9be8ac; border:2px solid #9be8ac; border-radius:50px; cursor:pointer; font-family: Arial Black, Arial, sans-serif;">🛒 SHOP</button>
+    </div>
 
     <div id="accountBox">
       <div id="accountSignedOut">
@@ -190,6 +223,13 @@
     <button id="leaderboardPreviewBackBtn" style="margin-top:18px; padding:14px 34px; font-size:18px; font-weight:900; background:#ffd23f; color:#7a2e00; border:none; border-radius:50px; cursor:pointer; box-shadow:0 6px 0 #c98e00; font-family: Arial Black, Arial, sans-serif;">BACK</button>
   </div>
 
+  <div id="shopScreen" class="hidden" style="position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; background:rgba(10,15,30,0.92); color:#fff; padding:24px; overflow-y:auto; -webkit-overflow-scrolling:touch; touch-action:pan-y;">
+    <p style="font-size:18px; font-weight:900; color:#9be8ac; letter-spacing:1px;">🛒 SHOP</p>
+    <p id="shopSubStatus" style="font-size:12px; color:#9be8ac; margin-top:4px; min-height:16px;"></p>
+    <div id="shopList" style="display:flex; flex-direction:column; gap:10px; margin-top:14px; width:min(340px,85vw);"></div>
+    <button id="shopBackBtn" style="margin-top:18px; padding:14px 34px; font-size:18px; font-weight:900; background:#ffd23f; color:#7a2e00; border:none; border-radius:50px; cursor:pointer; box-shadow:0 6px 0 #c98e00; font-family: Arial Black, Arial, sans-serif;">BACK</button>
+  </div>
+
   <div id="joystick" class="hidden">
     <div id="joystickKnob"></div>
   </div>
@@ -208,6 +248,7 @@ import {
 } from './js/audio.js';
 import { createLeaderboard } from './js/leaderboard.js';
 import { createAuth } from './js/auth.js';
+import { createShop } from './js/shop.js';
 
 (function(){
   const canvas = document.getElementById('game');
@@ -243,6 +284,11 @@ import { createAuth } from './js/auth.js';
   const leaderboardPreviewList = document.getElementById('leaderboardPreviewList');
   const viewLeaderboardBtn = document.getElementById('viewLeaderboardBtn');
   const leaderboardPreviewBackBtn = document.getElementById('leaderboardPreviewBackBtn');
+  const shopScreen = document.getElementById('shopScreen');
+  const shopList = document.getElementById('shopList');
+  const shopSubStatus = document.getElementById('shopSubStatus');
+  const viewShopBtn = document.getElementById('viewShopBtn');
+  const shopBackBtn = document.getElementById('shopBackBtn');
   const startBtn = document.getElementById('startBtn');
   const restartBtn = document.getElementById('restartBtn');
   const roarBtn = document.getElementById('roarBtn');
@@ -250,6 +296,7 @@ import { createAuth } from './js/auth.js';
   const joystick = document.getElementById('joystick');
   const joystickKnob = document.getElementById('joystickKnob');
   const throwBtn = document.getElementById('throwBtn');
+  const exitBtn = document.getElementById('exitBtn');
 
   // ---------- account (Supabase Auth) + leaderboard (Supabase) ----------
   const SUPABASE_URL = 'https://ljnshaoruygijgtcokwv.supabase.co';
@@ -267,6 +314,10 @@ import { createAuth } from './js/auth.js';
       listEl: leaderboardList,
       submitBox: scoreSubmitBox
     }
+  });
+  const shop = createShop({
+    auth,
+    elements: { listEl: shopList, statusEl: shopSubStatus }
   });
 
   // ---------- account UI ----------
@@ -343,15 +394,18 @@ import { createAuth } from './js/auth.js';
   let roundsSurvived = 0;
 
   const SHOCK_RADIUS_BASE = 170;
-  const SHOCK_RADIUS_GROWTH_PER_ROUND = 20;
-  const SHOCK_RADIUS_CAP = 420;
+  const SHOCK_RADIUS_GROWTH_PER_ROUND = 10;
+  const SHOCK_RADIUS_CAP = 300;
   const SHOCK_SPEED_BASE = 14;
-  const SHOCK_SPEED_GROWTH_PER_ROUND = 0.8;
-  const SHOCK_SPEED_CAP = 26;
+  const SHOCK_SPEED_GROWTH_PER_ROUND = 0.5;
+  const SHOCK_SPEED_CAP = 20;
   let shockMaxRadius = SHOCK_RADIUS_BASE;
   let shockSpeed = SHOCK_SPEED_BASE;
 
   const COIN_LIFE_FRAMES = 480; // ~8s at 60fps
+  const COIN_LIFE_SHRINK_PER_ROUND = 12; // ~0.2s less per round survived
+  const COIN_LIFE_FRAMES_FLOOR = 300;    // never faster than ~5s, so it stays a mild nudge
+  let coinLifeFrames = COIN_LIFE_FRAMES;
   const COIN_FADE_FRAMES = 90;  // fade over the last ~1.5s
 
   // ---------- background clouds (purely decorative, drift across the sky strip above
@@ -405,7 +459,10 @@ import { createAuth } from './js/auth.js';
   const DRAGON_GROWTH_CAP = 0.9; // max +90% size (nearly double)
   const DRAGON_GROWTH_PER_EXPLOSION = 0.15; // dragon steps up 15% bigger each time the pig blows
 
-  const dragon = { x: W/2, y: H*0.72, size: DRAGON_BASE_SIZE, vx:0, vy:0 };
+  // faceX: -1 = facing screen-left, 1 = facing screen-right. Kept separately from `facing`
+  // so that moving straight up/down doesn't lose (or randomly flip) the left/right profile.
+  // pitch: eased -1..1 (nose-up .. nose-down), driven by up/down input — see drawSingleDragon.
+  const dragon = { x: W/2, y: H*0.72, size: DRAGON_BASE_SIZE, vx:0, vy:0, facing:'right', faceX:1, pitch:0 };
 
   function updateDragonSize(){
     const multiplier = 1 + Math.min(roundsSurvived * DRAGON_GROWTH_PER_EXPLOSION, DRAGON_GROWTH_CAP);
@@ -538,6 +595,7 @@ import { createAuth } from './js/auth.js';
     roundsSurvived = 0;
     shockMaxRadius = SHOCK_RADIUS_BASE;
     shockSpeed = SHOCK_SPEED_BASE;
+    coinLifeFrames = COIN_LIFE_FRAMES;
     dragon.x = W/2; dragon.y = H*0.72;
     dragon.vx = 0; dragon.vy = 0;
     updateDragonSize();
@@ -602,6 +660,7 @@ import { createAuth } from './js/auth.js';
     shockRadius = 0;
     shockMaxRadius = Math.min(SHOCK_RADIUS_BASE + roundsSurvived*SHOCK_RADIUS_GROWTH_PER_ROUND, SHOCK_RADIUS_CAP);
     shockSpeed = Math.min(SHOCK_SPEED_BASE + roundsSurvived*SHOCK_SPEED_GROWTH_PER_ROUND, SHOCK_SPEED_CAP);
+    coinLifeFrames = Math.max(COIN_LIFE_FRAMES - roundsSurvived*COIN_LIFE_SHRINK_PER_ROUND, COIN_LIFE_FRAMES_FLOOR);
     roundsSurvived++;
     updateDragonSize();
     spawnBurst(pig.x, pig.y, '#ffb703', 40);
@@ -699,7 +758,19 @@ import { createAuth } from './js/auth.js';
       const n = Math.hypot(dir.dx, dir.dy);
       mx = (dir.dx/n) * inputMagnitude;
       my = (dir.dy/n) * inputMagnitude;
+
+      // Facing is based on the on-screen input direction (kx/ky), not the world-space
+      // dx/dy above -- the iso projection skews world axes, so using the world direction
+      // here would turn the dragon to face diagonally even when the player is pressing
+      // a straight screen-relative up/down/left/right.
+      dragon.facing = Math.abs(kx) >= Math.abs(ky) ? (kx < 0 ? 'left' : 'right') : (ky < 0 ? 'up' : 'down');
+      if (kx) dragon.faceX = kx < 0 ? -1 : 1;
     }
+
+    // Ease the nose-up/nose-down pitch every frame (not just while a key is held) so the
+    // dragon banks into the turn instead of snapping between poses.
+    const targetPitch = dragon.facing === 'up' ? -1 : dragon.facing === 'down' ? 1 : 0;
+    dragon.pitch += (targetPitch - dragon.pitch) * (1 - Math.pow(1 - 0.22, frameScale));
 
     const speed = 4.2;
     const ACCEL = 0.3; // how quickly velocity eases toward the target each frame — gives the dragon a bit of slide instead of stopping dead
@@ -768,7 +839,7 @@ import { createAuth } from './js/auth.js';
         cooldownTimer = 40;
         shockActive = false;
         feedProgress = 0;
-        burgersToFull = Math.max(3, 5 - Math.floor(score/120));
+        burgersToFull = Math.max(3, 5 - Math.floor(score/200));
       }
     } else if (pigState === 'cooldown'){
       cooldownTimer -= frameScale;
@@ -786,7 +857,7 @@ import { createAuth } from './js/auth.js';
         c.landed = true;
         c.x = Math.max(30, Math.min(W-30, c.x));
         c.y = Math.max(H*0.42, Math.min(H-40, c.y));
-        c.lifeFrames = COIN_LIFE_FRAMES;
+        c.lifeFrames = coinLifeFrames;
       }
     }
     // age out landed coins that were never picked up — this also fails the coin's
@@ -1003,15 +1074,39 @@ import { createAuth } from './js/auth.js';
     ctx.translate(scr.sx, scr.sy);
     if (invuln>0 && Math.floor(invuln/6)%2===0) ctx.globalAlpha = 0.35;
 
+    if (carrying){
+      ctx.font = '26px serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('🍔', 0, -dragon.size*0.6);
+    }
+
+    // The dragon glyph has no separate per-direction art, so facing is faked from the one
+    // glyph. The emoji's own artwork is a side view whose head points screen-LEFT, so
+    // mirroring gives us the left/right profile. Up/down can't be a 90 degree rotation --
+    // that just lays the dragon on its side and reads as a broken sprite -- and squashing it
+    // narrow (a "turned away from camera" foreshorten) destroys the silhouette at this size.
+    // Instead up/down is a pitch: the dragon rears its nose up when heading away and dips
+    // into a dive when heading toward the camera, plus a small depth scale (smaller = further
+    // away). That reads as a deliberate flying pose while keeping the full dragon shape.
+    // All of it is in its own save/restore so the burger drawn above isn't transformed too.
+    ctx.save();
+    const PITCH_ANGLE = 0.45;   // ~26 degrees at full up/down; enough to read, not enough to tip over
+    const PITCH_DEPTH = 0.08;   // shrink heading away from the camera, grow heading toward it
+    ctx.scale(-dragon.faceX, 1); // glyph natively faces left, so faceX=1 (right) is the mirrored one
+    if (dragon.pitch) {
+      // Applied inside the mirrored frame, so the same sign is nose-up for both profiles.
+      ctx.rotate(dragon.pitch * PITCH_ANGLE);
+      const s = 1 + dragon.pitch * PITCH_DEPTH;
+      ctx.scale(s, s);
+    }
+
     ctx.font = (dragon.size) + 'px serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText('🐉', 0, 0);
+    ctx.restore();
 
-    if (carrying){
-      ctx.font = '26px serif';
-      ctx.fillText('🍔', 0, -dragon.size*0.6);
-    }
     ctx.restore();
   }
 
@@ -1129,6 +1224,14 @@ import { createAuth } from './js/auth.js';
     requestAnimationFrame(loop);
   });
 
+  exitBtn.addEventListener('click', () => {
+    running = false;
+    joystick.classList.add('hidden');
+    throwBtn.classList.add('hidden');
+    gameOverEl.classList.add('hidden');
+    overlay.classList.remove('hidden');
+  });
+
   viewLeaderboardBtn.addEventListener('click', () => {
     overlay.classList.add('hidden');
     leaderboardPreview.classList.remove('hidden');
@@ -1136,6 +1239,16 @@ import { createAuth } from './js/auth.js';
   });
   leaderboardPreviewBackBtn.addEventListener('click', () => {
     leaderboardPreview.classList.add('hidden');
+    overlay.classList.remove('hidden');
+  });
+
+  viewShopBtn.addEventListener('click', () => {
+    overlay.classList.add('hidden');
+    shopScreen.classList.remove('hidden');
+    shop.render();
+  });
+  shopBackBtn.addEventListener('click', () => {
+    shopScreen.classList.add('hidden');
     overlay.classList.remove('hidden');
   });
 
