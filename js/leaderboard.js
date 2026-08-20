@@ -48,7 +48,7 @@ export function createLeaderboard({ url, anonKey, auth, elements }){
     targetEl.innerHTML = '<li>Loading…</li>';
     const { data, error } = await sb
       .from('scores')
-      .select('user_id,name,score,avatar')
+      .select('user_id,name,score,avatar,color_filter')
       .order('score', { ascending:false })
       .limit(10);
     if (myGeneration !== renderGeneration) return; // a newer render() superseded this one
@@ -66,7 +66,11 @@ export function createLeaderboard({ url, anonKey, auth, elements }){
         const mine = session
           ? row.user_id === session.user.id
           : (justSubmittedName && row.name === justSubmittedName && row.score === lastFinalScore);
-        const avatar = row.avatar ? `${escapeHtml(row.avatar)} ` : '';
+        // color_filter (from our own catalog via scores, not user input) recolors skins like
+        // the red dragon that reuse the base glyph -- see supabase_skin_color_filter_schema.sql.
+        // Without it a colored skin would look identical to the default on the leaderboard.
+        const avatarStyle = row.color_filter ? ` style="filter:${row.color_filter}"` : '';
+        const avatar = row.avatar ? `<span${avatarStyle}>${escapeHtml(row.avatar)}</span> ` : '';
         const text = `${avatar}${escapeHtml(row.name)} — ${row.score}`;
         return mine ? `<li><strong>${text} (you!)</strong></li>` : `<li>${text}</li>`;
       })

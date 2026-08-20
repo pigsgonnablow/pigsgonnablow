@@ -2,6 +2,17 @@
 
 Running log of notable changes, kept during dev sessions for reference.
 
+## 2026-08-20 (very late)
+
+- Made recolored skins (like the red dragon) show their actual color on the leaderboard
+  and in the "Playing as" account widget too, not just in the shop and in-game -- until
+  now those two spots only showed the plain base glyph, since a filter-recolored skin's
+  emoji is identical to the default's. `color_filter` is now denormalized onto `scores`
+  the same way `avatar` already is, so this keeps working the same way for any future
+  filter-based skin without further leaderboard-specific changes. New file:
+  `supabase_leaderboard_color_filter_schema.sql` (needs to be run in the Supabase SQL
+  editor) -- adds `scores.color_filter` and updates `submit_personal_best` to write it.
+
 ## 2026-08-20 (late night)
 
 - Fixed a bug that had been silently breaking the entire site since the red-dragon color

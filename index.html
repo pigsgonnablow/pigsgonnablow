@@ -189,7 +189,7 @@
         <button id="saveDisplayNameBtn">SAVE</button>
       </div>
       <div id="accountSignedIn" class="hidden">
-        <p>Playing as <strong id="accountName"></strong></p>
+        <p>Playing as <span id="accountAvatar"></span><strong id="accountName"></strong></p>
         <button id="signOutBtn" class="secondary">Sign out</button>
       </div>
       <p id="accountStatus"></p>
@@ -331,6 +331,7 @@ import { createShop } from './js/shop.js';
   const saveDisplayNameBtn = document.getElementById('saveDisplayNameBtn');
   const accountSignedIn = document.getElementById('accountSignedIn');
   const accountName = document.getElementById('accountName');
+  const accountAvatar = document.getElementById('accountAvatar');
   const signOutBtn = document.getElementById('signOutBtn');
   const accountStatus = document.getElementById('accountStatus');
 
@@ -376,7 +377,11 @@ import { createShop } from './js/shop.js';
     accountSignedOut.classList.toggle('hidden', !!session);
     accountNeedsName.classList.toggle('hidden', !(session && !profile));
     accountSignedIn.classList.toggle('hidden', !(session && profile));
-    if (session && profile) accountName.textContent = (profile.avatar ? profile.avatar + ' ' : '') + profile.display_name;
+    if (session && profile){
+      accountName.textContent = profile.display_name;
+      accountAvatar.textContent = profile.avatar ? profile.avatar + ' ' : '';
+      accountAvatar.style.filter = profile.color_filter || 'none';
+    }
     if (session) accountStatus.textContent = '';
     // Keep the in-game dragon glyph (and its color filter, for skins that recolor rather
     // than replace the base glyph) in sync with whatever skin the signed-in account has
