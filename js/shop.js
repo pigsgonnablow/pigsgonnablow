@@ -1,8 +1,9 @@
 // Skin shop: browse the `skins` catalog, see what's owned, and equip anything owned (or
-// free) via the equip_skin RPC. Buying isn't wired up yet -- no Stripe Checkout session or
-// webhook exists server-side, so priced skins render with a disabled "coming soon" state
-// instead of a working buy button. Like leaderboard.js/auth.js, Supabase is an optional
-// dependency: if it never loaded, the shop just says so instead of breaking the game.
+// free) via the equip_skin RPC. Buying a priced skin calls the create-checkout Edge Function
+// (supabase/functions/create-checkout) to get a Stripe Checkout URL and redirects the browser
+// there -- the actual grant only ever happens server-side, via the stripe-webhook Edge
+// Function, after Stripe confirms payment. Like leaderboard.js/auth.js, Supabase is an
+// optional dependency: if it never loaded, the shop just says so instead of breaking the game.
 function escapeHtml(s){
   return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
@@ -80,10 +81,11 @@ export function createShop({ auth, elements }){
         btn.disabled = !session;
         btn.addEventListener('click', () => equip(skin.id));
       } else {
-        btn.textContent = 'COMING SOON';
+        btn.textContent = 'BUY';
         btn.classList.add('buy');
-        btn.disabled = true;
-        btn.title = 'Purchasing isn’t live yet';
+        btn.disabled = !session;
+        if (!session) btn.title = 'Sign in to buy';
+        btn.addEventListener('click', () => buy(skin.id, btn));
       }
       card.appendChild(btn);
       listEl.appendChild(card);
@@ -102,6 +104,22 @@ export function createShop({ auth, elements }){
     await auth.refreshProfile(); // equip_skin wrote profiles.equipped_skin_id directly in the
                                   // DB -- auth's cached profile has no other way to learn that
     render();
+  }
+
+  async function buy(skinId, btn){
+    btn.disabled = true;
+    statusEl.textContent = 'Redirecting to checkout…';
+    // sb.functions.invoke automatically attaches the caller's Supabase session as an
+    // Authorization bearer token -- that's what create-checkout uses server-side to identify
+    // the buyer, instead of trusting a user_id the client could otherwise lie about.
+    const { data, error } = await sb.functions.invoke('create-checkout', { body: { skin_id: skinId } });
+    if (error || !data?.url){
+      console.error('[shop] create-checkout failed:', error, data);
+      statusEl.textContent = "Couldn't start checkout — try again.";
+      btn.disabled = false;
+      return;
+    }
+    window.location.href = data.url;
   }
 
   return { render };

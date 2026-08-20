@@ -1,0 +1,6 @@
+# stripe-webhook is called by Stripe's servers, not a signed-in player -- there's no Supabase
+# session to verify a JWT against. Its own Stripe-signature check (see its source) is what
+# authenticates the request instead. create-checkout is left on the default (verify_jwt = true)
+# since it's only ever called by the game client with the player's own session.
+[functions.stripe-webhook]
+verify_jwt = false

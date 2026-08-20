@@ -2,6 +2,22 @@
 
 Running log of notable changes, kept during dev sessions for reference.
 
+## 2026-08-20
+
+- Wired up real skin purchasing (Stripe sandbox). Priced skins in the shop now show a
+  working "BUY" button instead of "COMING SOON": it calls a new Supabase Edge Function,
+  `create-checkout`, which verifies the caller's session server-side and creates a Stripe
+  Checkout Session for that skin, then redirects the browser there. A second Edge
+  Function, `stripe-webhook`, is the only thing that ever grants a skin -- it verifies
+  Stripe's signature and, on `checkout.session.completed`, inserts into `owned_skins`
+  using the service-role key (client code has no insert access to that table at all).
+  Returning from Checkout lands back in the shop with a status message. New files:
+  `supabase/functions/create-checkout/index.ts`, `supabase/functions/stripe-webhook/index.ts`,
+  `supabase/config.toml`. Both functions are deployed and their secrets
+  (`STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `SITE_URL`) are configured on the
+  Supabase project; `SUPABASE_SERVICE_ROLE_KEY` didn't need setting since the platform
+  already provides it to every Edge Function automatically.
+
 ## 2026-08-19
 
 - Added an in-run "✕ EXIT" button (top-left of the HUD, under the score) that stops the

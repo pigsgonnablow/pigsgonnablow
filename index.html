@@ -1261,6 +1261,24 @@ import { createShop } from './js/shop.js';
     overlay.classList.remove('hidden');
   });
 
+  // Stripe Checkout redirects the browser back to `?checkout=success` or `?checkout=cancel`
+  // (see create-checkout's success_url/cancel_url) -- land straight in the shop with a status
+  // message instead of the title screen, and strip the query param so a refresh doesn't
+  // re-show it. The webhook that actually grants the skin runs async on Stripe's side, so
+  // this is a "here's what happened" message, not a confirmation the grant has landed yet --
+  // shop.render() below queries whatever owned_skins state exists at that moment.
+  const checkoutResult = new URLSearchParams(window.location.search).get('checkout');
+  if (checkoutResult){
+    history.replaceState(null, '', window.location.pathname);
+    overlay.classList.add('hidden');
+    shopScreen.classList.remove('hidden');
+    shop.render().then(() => {
+      shopSubStatus.textContent = checkoutResult === 'success'
+        ? 'Purchase complete! It should appear below in a few seconds.'
+        : 'Checkout canceled.';
+    });
+  }
+
   // initial static draw behind overlay
   resetGame();
   draw();
