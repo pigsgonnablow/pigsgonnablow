@@ -21,7 +21,7 @@ export function createAuth({ url, anonKey }){
     try {
       const { data, error } = await sb
         .from('profiles')
-        .select('display_name,avatar,equipped_skin_id')
+        .select('display_name,avatar,equipped_skin_id,color_filter')
         .eq('user_id', session.user.id)
         .maybeSingle();
       if (error) console.error('[auth] loadProfile failed:', error.message);

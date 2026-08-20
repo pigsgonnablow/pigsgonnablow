@@ -30,7 +30,7 @@ export function createShop({ auth, elements }){
 
     const { data: skins, error: skinsError } = await sb
       .from('skins')
-      .select('id,name,emoji,price_cents')
+      .select('id,name,emoji,price_cents,color_filter')
       .eq('active', true)
       .order('sort_order', { ascending: true });
     if (myGeneration !== renderGeneration) return;
@@ -64,6 +64,9 @@ export function createShop({ auth, elements }){
       card.className = 'skinCard' + (equipped ? ' equipped' : '');
 
       const priceText = free ? 'Free' : formatPrice(skin.price_cents);
+      // color_filter comes from our own catalog (not user input), but it's still a raw CSS
+      // value -- keep it out of the innerHTML template and set it as a real style property
+      // instead of string-interpolating it into an attribute.
       card.innerHTML = `
         <div class="skinEmoji">${escapeHtml(skin.emoji)}</div>
         <div class="skinInfo">
@@ -71,6 +74,7 @@ export function createShop({ auth, elements }){
           <div class="skinPrice">${equipped ? 'Equipped' : (owned ? 'Owned' : priceText)}</div>
         </div>
       `;
+      if (skin.color_filter) card.querySelector('.skinEmoji').style.filter = skin.color_filter;
 
       const btn = document.createElement('button');
       if (equipped){

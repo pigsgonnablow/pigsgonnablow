@@ -2,6 +2,21 @@
 
 Running log of notable changes, kept during dev sessions for reference.
 
+## 2026-08-20 (night)
+
+- Made the Dragon - Red skin actually look red, in the shop and in-game, instead of just
+  showing the plain green dragon next to a red-circle indicator. The dragon is a single
+  Unicode emoji with no separately paintable parts, so there's no way to recolor just
+  specific details (e.g. the fins) directly -- instead a CSS/canvas color filter
+  (grayscale -> sepia -> hue-rotate -> saturate, tuned by eye against the live glyph) is
+  applied over the same base glyph wherever the equipped skin is actually rendered as the
+  player's character: the shop's catalog card and the in-game sprite. New file:
+  `supabase_skin_color_filter_schema.sql` (needs to be run in the Supabase SQL editor) --
+  adds `skins.color_filter` / `profiles.color_filter`, updates `equip_skin` to denormalize
+  it the same way it already does for `avatar`, and drops the old red-circle-plus-dragon
+  placeholder emoji now that the filter does the job for real. Not yet applied to the
+  leaderboard/account-widget avatar display -- those still show the plain glyph.
+
 ## 2026-08-20 (evening)
 
 - Removed the Griffin skin from the shop, leaving Dragon (free) and Dragon - Red ($1.99)
