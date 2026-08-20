@@ -251,6 +251,7 @@ import { createAuth } from './js/auth.js';
 import { createShop } from './js/shop.js';
 
 (function(){
+  console.log('[boot] 1: IIFE start');
   const canvas = document.getElementById('game');
   const ctx = canvas.getContext('2d');
 
@@ -297,6 +298,7 @@ import { createShop } from './js/shop.js';
   const joystickKnob = document.getElementById('joystickKnob');
   const throwBtn = document.getElementById('throwBtn');
   const exitBtn = document.getElementById('exitBtn');
+  console.log('[boot] 2: elements grabbed');
 
   // ---------- account (Supabase Auth) + leaderboard (Supabase) ----------
   const SUPABASE_URL = 'https://ljnshaoruygijgtcokwv.supabase.co';
@@ -319,6 +321,7 @@ import { createShop } from './js/shop.js';
     auth,
     elements: { listEl: shopList, statusEl: shopSubStatus }
   });
+  console.log('[boot] 3: auth/leaderboard/shop created');
 
   // ---------- account UI ----------
   const accountSignedOut = document.getElementById('accountSignedOut');
@@ -1268,6 +1271,7 @@ import { createShop } from './js/shop.js';
     overlay.classList.remove('hidden');
   });
 
+  console.log('[boot] 4: before viewShopBtn wiring');
   viewShopBtn.addEventListener('click', () => {
     overlay.classList.add('hidden');
     shopScreen.classList.remove('hidden');
@@ -1299,9 +1303,11 @@ import { createShop } from './js/shop.js';
     });
   }
 
+  console.log('[boot] 5: before resetGame/draw');
   // initial static draw behind overlay
   resetGame();
   draw();
+  console.log('[boot] 6: IIFE complete');
 })();
 
 const isLocalDev = ['localhost','127.0.0.1'].includes(location.hostname);
