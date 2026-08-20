@@ -362,8 +362,11 @@ import { createShop } from './js/shop.js';
     accountSignedIn.classList.toggle('hidden', !(session && profile));
     if (session && profile) accountName.textContent = (profile.avatar ? profile.avatar + ' ' : '') + profile.display_name;
     if (session) accountStatus.textContent = '';
+    // Keep the in-game dragon glyph in sync with whatever skin the signed-in account has
+    // equipped (falls back to the free default when signed out or before a profile exists).
+    dragonEmoji = (session && profile && profile.avatar) ? profile.avatar : '🐉';
   });
-  auth.init();
+  const authReady = auth.init();
 
   // ---------- state ----------
   let score = 0;
@@ -463,6 +466,12 @@ import { createShop } from './js/shop.js';
   // so that moving straight up/down doesn't lose (or randomly flip) the left/right profile.
   // pitch: eased -1..1 (nose-up .. nose-down), driven by up/down input — see drawSingleDragon.
   const dragon = { x: W/2, y: H*0.72, size: DRAGON_BASE_SIZE, vx:0, vy:0, faceX:1, pitch:0 };
+
+  // The glyph actually drawn for the dragon in-game. Defaults to the free skin and is kept
+  // in sync with the signed-in account's equipped skin via auth.onChange below -- a purchase
+  // is otherwise invisible in gameplay itself (it only shows on the leaderboard/account
+  // widget), which defeats the point of selling skins in the first place.
+  let dragonEmoji = '🐉';
 
   function updateDragonSize(){
     const multiplier = 1 + Math.min(roundsSurvived * DRAGON_GROWTH_PER_EXPLOSION, DRAGON_GROWTH_CAP);
@@ -1113,7 +1122,7 @@ import { createShop } from './js/shop.js';
     ctx.font = (dragon.size) + 'px serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText('🐉', 0, 0);
+    ctx.fillText(dragonEmoji, 0, 0);
     ctx.restore();
 
     ctx.restore();
@@ -1266,13 +1275,16 @@ import { createShop } from './js/shop.js';
   // message instead of the title screen, and strip the query param so a refresh doesn't
   // re-show it. The webhook that actually grants the skin runs async on Stripe's side, so
   // this is a "here's what happened" message, not a confirmation the grant has landed yet --
-  // shop.render() below queries whatever owned_skins state exists at that moment.
+  // shop.render() below queries whatever owned_skins state exists at that moment. Waits on
+  // authReady first -- auth.init() is fire-and-forget at startup, and without waiting here
+  // shop.render() could run before the signed-in session/profile finished restoring, making
+  // every "Owned"/"Equipped" row on this very first render look wrong (or just missing).
   const checkoutResult = new URLSearchParams(window.location.search).get('checkout');
   if (checkoutResult){
     history.replaceState(null, '', window.location.pathname);
     overlay.classList.add('hidden');
     shopScreen.classList.remove('hidden');
-    shop.render().then(() => {
+    Promise.resolve(authReady).then(() => shop.render()).then(() => {
       shopSubStatus.textContent = checkoutResult === 'success'
         ? 'Purchase complete! It should appear below in a few seconds.'
         : 'Checkout canceled.';

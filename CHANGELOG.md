@@ -2,6 +2,24 @@
 
 Running log of notable changes, kept during dev sessions for reference.
 
+## 2026-08-20 (later still)
+
+- Fixed purchased skins not actually doing anything in-game. The dragon sprite drawn
+  during gameplay was hard-coded to the default emoji regardless of what a signed-in
+  player had equipped -- a purchase only ever showed up on the leaderboard/account
+  widget, never in the game itself. `drawSingleDragon()` now reads a `dragonEmoji`
+  variable kept in sync with the account's equipped skin via the existing
+  `auth.onChange` listener (so it also updates immediately after equipping a different
+  owned skin from the shop, no reload needed), falling back to the free default skin
+  when signed out.
+- Fixed a race where landing back in the shop right after a Stripe Checkout redirect
+  could render every row's Owned/Equipped state wrong (or blank): `auth.init()` is
+  fire-and-forget at startup, and the post-checkout handler was calling `shop.render()`
+  without waiting for the signed-in session/profile to finish restoring first. Now waits
+  on `auth.init()`'s promise before that first render.
+- Bumped the service worker cache version again -- same reason as before, `sw.js` itself
+  wasn't touched by the `index.html` changes above.
+
 ## 2026-08-20 (later)
 
 - Hardened purchase verification in `stripe-webhook`. It now only grants a skin once
