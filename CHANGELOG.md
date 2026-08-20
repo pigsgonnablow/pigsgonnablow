@@ -2,6 +2,23 @@
 
 Running log of notable changes, kept during dev sessions for reference.
 
+## 2026-08-20 (later)
+
+- Hardened purchase verification in `stripe-webhook`. It now only grants a skin once
+  Stripe actually confirms payment (`payment_status === 'paid'`) instead of granting on
+  "checkout completed" alone -- for delayed payment methods (bank debit, some Klarna
+  flows) "completed" can fire before the money has actually cleared, and Stripe follows
+  up with a separate `checkout.session.async_payment_succeeded` event once it does.
+  Subscribed the webhook to that event too, and both are handled identically. Also
+  refuses to grant on a session shape that couldn't have come from our own checkout flow
+  (wrong mode, zero/missing amount), and cross-checks the charged amount against the
+  catalog's current price -- not a gate (what Stripe actually charged is always the
+  source of truth), just something that makes a price drift loudly visible in logs
+  instead of silently invisible. New file: `supabase_purchase_audit_schema.sql` (needs
+  to be run in the Supabase SQL editor) -- adds `owned_skins.amount_paid_cents` and
+  `.currency`, an audit trail of what was actually charged straight from Stripe's own
+  session data, independent of whatever the catalog says today.
+
 ## 2026-08-20
 
 - Wired up real skin purchasing (Stripe sandbox). Priced skins in the shop now show a
