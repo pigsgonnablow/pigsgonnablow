@@ -2,6 +2,17 @@
 
 Running log of notable changes, kept during dev sessions for reference.
 
+## 2026-08-20 (evening)
+
+- Removed the Griffin skin from the shop, leaving Dragon (free) and Dragon - Red ($1.99)
+  as the only choices. Deactivated rather than deleted -- a couple of test accounts
+  already own it from testing, and deleting the catalog row outright would break the
+  foreign key from their `owned_skins` rows. `active = false` already hides it
+  everywhere that matters (the shop's catalog query, and `equip_skin`'s own lookup, both
+  filter on it), so an existing owner can no longer re-equip it either. Also deactivated
+  the matching Stripe product so it can't be purchased through any other path. New file:
+  `supabase_remove_griffin_schema.sql` (needs to be run in the Supabase SQL editor).
+
 ## 2026-08-20 (later still)
 
 - Fixed purchased skins not actually doing anything in-game. The dragon sprite drawn
