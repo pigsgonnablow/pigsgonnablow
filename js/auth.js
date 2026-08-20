@@ -36,9 +36,11 @@ export function createAuth({ url, anonKey }){
   // UI stuck mid-render -- always fall through to notify() with whatever state we have, so the
   // account widget renders *something* (worst case, a safe logged-out Login button).
   async function init(){
+    console.log('[auth] init start, sb=', !!sb);
     if (!sb){ notify(); return; }
     try {
       const { data, error } = await sb.auth.getSession();
+      console.log('[auth] getSession result', { error: error && error.message, hasSession: !!(data && data.session) });
       if (error) console.error('[auth] getSession failed:', error.message);
       session = data ? data.session : null;
       if (session) await loadProfile();
@@ -47,6 +49,7 @@ export function createAuth({ url, anonKey }){
       session = null;
       profile = null;
     }
+    console.log('[auth] init done, session=', !!session);
     notify();
     sb.auth.onAuthStateChange(async (_event, newSession) => {
       try {
