@@ -1,9 +1,11 @@
-// Skin shop: browse the `skins` catalog, see what's owned, and equip anything owned (or
-// free) via the equip_skin RPC. Buying a priced skin calls the create-checkout Edge Function
-// (supabase/functions/create-checkout) to get a Stripe Checkout URL and redirects the browser
-// there -- the actual grant only ever happens server-side, via the stripe-webhook Edge
-// Function, after Stripe confirms payment. Like leaderboard.js/auth.js, Supabase is an
-// optional dependency: if it never loaded, the shop just says so instead of breaking the game.
+// Skin shop: browse the `skins` catalog and buy anything not owned yet. Purchasing-only --
+// picking which owned skin to wear lives in its own "My Skins" screen (js/myskins.js)
+// instead, so a player just choosing an avatar never has to wade through priced items they
+// don't own. Buying calls the create-checkout Edge Function (supabase/functions/create-checkout)
+// to get a Stripe Checkout URL and redirects the browser there -- the actual grant only ever
+// happens server-side, via the stripe-webhook Edge Function, after Stripe confirms payment.
+// Like leaderboard.js/auth.js, Supabase is an optional dependency: if it never loaded, the
+// shop just says so instead of breaking the game.
 function escapeHtml(s){
   return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
@@ -41,27 +43,25 @@ export function createShop({ auth, elements }){
       return;
     }
 
-    const { session, profile } = auth.getState();
+    const { session } = auth.getState();
     let ownedIds = new Set();
     if (session){
       const { data: owned } = await sb.from('owned_skins').select('skin_id').eq('user_id', session.user.id);
       if (myGeneration !== renderGeneration) return;
       if (owned) ownedIds = new Set(owned.map(o => o.skin_id));
     }
-    const equippedId = profile ? profile.equipped_skin_id : null;
 
     if (!session){
-      statusEl.textContent = 'Sign in from the title screen to buy or equip skins.';
+      statusEl.textContent = 'Sign in from the title screen to buy skins.';
     }
 
     listEl.innerHTML = '';
     for (const skin of skins){
       const free = skin.price_cents === 0;
       const owned = free || ownedIds.has(skin.id);
-      const equipped = skin.id === equippedId;
 
       const card = document.createElement('div');
-      card.className = 'skinCard' + (equipped ? ' equipped' : '');
+      card.className = 'skinCard';
 
       const priceText = free ? 'Free' : formatPrice(skin.price_cents);
       // color_filter comes from our own catalog (not user input), but it's still a raw CSS
@@ -71,19 +71,15 @@ export function createShop({ auth, elements }){
         <div class="skinEmoji">${escapeHtml(skin.emoji)}</div>
         <div class="skinInfo">
           <div class="skinName">${escapeHtml(skin.name)}</div>
-          <div class="skinPrice">${equipped ? 'Equipped' : (owned ? 'Owned' : priceText)}</div>
+          <div class="skinPrice">${owned ? 'Owned' : priceText}</div>
         </div>
       `;
       if (skin.color_filter) card.querySelector('.skinEmoji').style.filter = skin.color_filter;
 
       const btn = document.createElement('button');
-      if (equipped){
-        btn.textContent = 'EQUIPPED';
+      if (owned){
+        btn.textContent = 'OWNED';
         btn.disabled = true;
-      } else if (owned){
-        btn.textContent = 'EQUIP';
-        btn.disabled = !session;
-        btn.addEventListener('click', () => equip(skin.id));
       } else {
         btn.textContent = 'BUY';
         btn.classList.add('buy');
@@ -94,20 +90,6 @@ export function createShop({ auth, elements }){
       card.appendChild(btn);
       listEl.appendChild(card);
     }
-  }
-
-  async function equip(skinId){
-    statusEl.textContent = 'Updating…';
-    const { error } = await sb.rpc('equip_skin', { p_skin_id: skinId });
-    if (error){
-      console.error('[shop] equip_skin failed:', error.message, error);
-      statusEl.textContent = "Couldn't equip that skin — try again.";
-      return;
-    }
-    statusEl.textContent = '';
-    await auth.refreshProfile(); // equip_skin wrote profiles.equipped_skin_id directly in the
-                                  // DB -- auth's cached profile has no other way to learn that
-    render();
   }
 
   async function buy(skinId, btn){

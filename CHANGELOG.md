@@ -2,6 +2,15 @@
 
 Running log of notable changes, kept during dev sessions for reference.
 
+## 2026-08-21
+
+- Split "pick your skin" out of the Shop into its own screen. The Shop is purchasing-only
+  now: owned skins show a greyed-out "OWNED" button, everything else shows "BUY" -- no
+  more EQUIP button mixed in. A new "🐉 MY SKINS" button on the title screen opens a
+  screen listing only the skins the account actually owns (free skins included), where
+  EQUIP actually lives. New file: `js/myskins.js`; `js/shop.js` trimmed down to drop its
+  own equip logic entirely.
+
 ## 2026-08-20 (very late)
 
 - Made recolored skins (like the red dragon) show their actual color on the leaderboard

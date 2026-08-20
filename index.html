@@ -169,9 +169,10 @@
     <p>🎮 Use the joystick (bottom-left) or arrow keys / WASD to move the dragon.</p>
     <p>🍔 Spend 5 coins to throw your burger at the pig from range — press E or tap THROW!</p>
     <button id="startBtn">START</button>
-    <div style="display:flex; gap:10px; margin-top:10px;">
+    <div style="display:flex; gap:10px; margin-top:10px; flex-wrap:wrap; justify-content:center;">
       <button id="viewLeaderboardBtn" style="padding:10px 22px; font-size:14px; font-weight:900; background:transparent; color:#ffd23f; border:2px solid #ffd23f; border-radius:50px; cursor:pointer; font-family: Arial Black, Arial, sans-serif;">🏆 LEADERBOARD</button>
       <button id="viewShopBtn" style="padding:10px 22px; font-size:14px; font-weight:900; background:transparent; color:#9be8ac; border:2px solid #9be8ac; border-radius:50px; cursor:pointer; font-family: Arial Black, Arial, sans-serif;">🛒 SHOP</button>
+      <button id="viewMySkinsBtn" style="padding:10px 22px; font-size:14px; font-weight:900; background:transparent; color:#c9a7ff; border:2px solid #c9a7ff; border-radius:50px; cursor:pointer; font-family: Arial Black, Arial, sans-serif;">🐉 MY SKINS</button>
     </div>
 
     <div id="accountBox">
@@ -230,6 +231,13 @@
     <button id="shopBackBtn" style="margin-top:18px; padding:14px 34px; font-size:18px; font-weight:900; background:#ffd23f; color:#7a2e00; border:none; border-radius:50px; cursor:pointer; box-shadow:0 6px 0 #c98e00; font-family: Arial Black, Arial, sans-serif;">BACK</button>
   </div>
 
+  <div id="mySkinsScreen" class="hidden" style="position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; background:rgba(10,15,30,0.92); color:#fff; padding:24px; overflow-y:auto; -webkit-overflow-scrolling:touch; touch-action:pan-y;">
+    <p style="font-size:18px; font-weight:900; color:#c9a7ff; letter-spacing:1px;">🐉 MY SKINS</p>
+    <p id="mySkinsSubStatus" style="font-size:12px; color:#9be8ac; margin-top:4px; min-height:16px;"></p>
+    <div id="mySkinsList" style="display:flex; flex-direction:column; gap:10px; margin-top:14px; width:min(340px,85vw);"></div>
+    <button id="mySkinsBackBtn" style="margin-top:18px; padding:14px 34px; font-size:18px; font-weight:900; background:#ffd23f; color:#7a2e00; border:none; border-radius:50px; cursor:pointer; box-shadow:0 6px 0 #c98e00; font-family: Arial Black, Arial, sans-serif;">BACK</button>
+  </div>
+
   <div id="joystick" class="hidden">
     <div id="joystickKnob"></div>
   </div>
@@ -249,6 +257,7 @@ import {
 import { createLeaderboard } from './js/leaderboard.js';
 import { createAuth } from './js/auth.js';
 import { createShop } from './js/shop.js';
+import { createMySkins } from './js/myskins.js';
 
 (function(){
   const canvas = document.getElementById('game');
@@ -289,6 +298,11 @@ import { createShop } from './js/shop.js';
   const shopSubStatus = document.getElementById('shopSubStatus');
   const viewShopBtn = document.getElementById('viewShopBtn');
   const shopBackBtn = document.getElementById('shopBackBtn');
+  const mySkinsScreen = document.getElementById('mySkinsScreen');
+  const mySkinsList = document.getElementById('mySkinsList');
+  const mySkinsSubStatus = document.getElementById('mySkinsSubStatus');
+  const viewMySkinsBtn = document.getElementById('viewMySkinsBtn');
+  const mySkinsBackBtn = document.getElementById('mySkinsBackBtn');
   const startBtn = document.getElementById('startBtn');
   const restartBtn = document.getElementById('restartBtn');
   const roarBtn = document.getElementById('roarBtn');
@@ -318,6 +332,10 @@ import { createShop } from './js/shop.js';
   const shop = createShop({
     auth,
     elements: { listEl: shopList, statusEl: shopSubStatus }
+  });
+  const mySkins = createMySkins({
+    auth,
+    elements: { listEl: mySkinsList, statusEl: mySkinsSubStatus }
   });
 
   // ---------- account UI ----------
@@ -1286,6 +1304,16 @@ import { createShop } from './js/shop.js';
   });
   shopBackBtn.addEventListener('click', () => {
     shopScreen.classList.add('hidden');
+    overlay.classList.remove('hidden');
+  });
+
+  viewMySkinsBtn.addEventListener('click', () => {
+    overlay.classList.add('hidden');
+    mySkinsScreen.classList.remove('hidden');
+    mySkins.render();
+  });
+  mySkinsBackBtn.addEventListener('click', () => {
+    mySkinsScreen.classList.add('hidden');
     overlay.classList.remove('hidden');
   });
 
