@@ -86,6 +86,12 @@ Deno.serve(async (req) => {
       success_url: `${siteUrl}?checkout=success`,
       cancel_url: `${siteUrl}?checkout=cancel`,
       metadata: { user_id: user.id, skin_id: skin.id },
+      // Stripe's account-level "Managed Payments" (on by default on newer accounts) requires
+      // every product to carry a tax_code so it can calculate sales tax -- irrelevant for a
+      // cosmetic digital good with no jurisdictional tax obligation, so opt this session out
+      // rather than tagging every skin in the catalog with a tax code it doesn't need.
+      // deno-lint-ignore no-explicit-any
+      ...({ managed_payments: { enabled: false } } as any),
     });
 
     return new Response(JSON.stringify({ url: session.url }), {

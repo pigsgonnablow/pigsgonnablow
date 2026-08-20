@@ -16,7 +16,18 @@ Running log of notable changes, kept during dev sessions for reference.
   `supabase/config.toml`. Both functions are deployed and their secrets
   (`STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `SITE_URL`) are configured on the
   Supabase project; `SUPABASE_SERVICE_ROLE_KEY` didn't need setting since the platform
-  already provides it to every Edge Function automatically.
+  already provides it to every Edge Function automatically. Also bumped the service
+  worker's cache version -- it wasn't itself touched by the deploy that shipped the new
+  shop code, so browsers with it already installed kept serving the old cached
+  `js/shop.js` (still showing "COMING SOON") until this forced a fresh install.
+- Fixed `create-checkout` failing for every purchase attempt with a generic 500. Root
+  cause: Stripe's account-level "Managed Payments" (on by default) requires every
+  product to carry a `tax_code` so it can calculate sales tax, which the skin catalog's
+  products don't have. Disabled Managed Payments for these checkout sessions rather than
+  tagging every skin with a tax code it doesn't need for a cosmetic digital good.
+  Verified end-to-end with a real sandbox purchase (Stripe's test card): Checkout
+  completed, the webhook granted the skin, and it showed up equippable in the shop
+  immediately after.
 
 ## 2026-08-19
 
