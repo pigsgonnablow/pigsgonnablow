@@ -2,6 +2,23 @@
 
 Running log of notable changes, kept during dev sessions for reference.
 
+## 2026-08-20 (late night)
+
+- Fixed a bug that had been silently breaking the entire site since the red-dragon color
+  filter change earlier tonight: every button (START, SHOP, LOGIN, all of it) stopped
+  responding, and the account widget always showed signed-out regardless of session
+  state. Root cause: `dragonEmoji`/`dragonFilter` were declared with `let` further down
+  the startup script than `auth.onChange(...)`, which -- unlike a typical event listener
+  -- invokes its callback immediately and synchronously the moment it's registered (by
+  design, so the account widget has a value to render right away). That callback reads
+  `dragonEmoji`, so registering it before the `let` declaration had run threw a real
+  temporal-dead-zone `ReferenceError`, which aborted the rest of the startup script
+  before any button listeners got wired up. No error ever reached the console in a way
+  that was easy to spot live, which is what made this hard to track down -- found by
+  wrapping the startup script in a try/catch that recorded the thrown error to a
+  `window` property for inspection after the fact. Moved both declarations above the
+  `auth.onChange` call, where they belong.
+
 ## 2026-08-20 (night)
 
 - Made the Dragon - Red skin actually look red, in the shop and in-game, instead of just

@@ -250,9 +250,7 @@ import { createLeaderboard } from './js/leaderboard.js';
 import { createAuth } from './js/auth.js';
 import { createShop } from './js/shop.js';
 
-try {
 (function(){
-  window.__boot1=true;
   const canvas = document.getElementById('game');
   const ctx = canvas.getContext('2d');
 
@@ -299,7 +297,6 @@ try {
   const joystickKnob = document.getElementById('joystickKnob');
   const throwBtn = document.getElementById('throwBtn');
   const exitBtn = document.getElementById('exitBtn');
-  window.__boot2=true;
 
   // ---------- account (Supabase Auth) + leaderboard (Supabase) ----------
   const SUPABASE_URL = 'https://ljnshaoruygijgtcokwv.supabase.co';
@@ -322,7 +319,6 @@ try {
     auth,
     elements: { listEl: shopList, statusEl: shopSubStatus }
   });
-  window.__boot3=true;
 
   // ---------- account UI ----------
   const accountSignedOut = document.getElementById('accountSignedOut');
@@ -359,6 +355,22 @@ try {
     accountStatus.textContent = error || '';
   });
   signOutBtn.addEventListener('click', () => auth.signOut());
+
+  // The glyph actually drawn for the dragon in-game. Defaults to the free skin and is kept
+  // in sync with the signed-in account's equipped skin via auth.onChange below -- a purchase
+  // is otherwise invisible in gameplay itself (it only shows on the leaderboard/account
+  // widget), which defeats the point of selling skins in the first place. Declared here,
+  // before auth.onChange is registered, because onChange invokes its callback immediately
+  // and synchronously on registration (see auth.js) -- declaring these later, even though
+  // "later" is still before the callback would supposedly run, is a real temporal-dead-zone
+  // ReferenceError, not just bad style: it crashed the entire startup IIFE silently (thrown
+  // from inside a fired-synchronously callback, not logged anywhere obvious), which is why
+  // every button on the page stopped responding after this was first added.
+  let dragonEmoji = '🐉';
+  // Some skins (e.g. the red dragon) are the same base glyph with a CSS/canvas color filter
+  // applied over it, since the emoji has no separately paintable parts to reskin directly --
+  // see supabase_skin_color_filter_schema.sql. 'none' when the equipped skin has no filter.
+  let dragonFilter = 'none';
 
   auth.onChange(({ session, profile }) => {
     accountSignedOut.classList.toggle('hidden', !!session);
@@ -472,16 +484,6 @@ try {
   // so that moving straight up/down doesn't lose (or randomly flip) the left/right profile.
   // pitch: eased -1..1 (nose-up .. nose-down), driven by up/down input — see drawSingleDragon.
   const dragon = { x: W/2, y: H*0.72, size: DRAGON_BASE_SIZE, vx:0, vy:0, faceX:1, pitch:0 };
-
-  // The glyph actually drawn for the dragon in-game. Defaults to the free skin and is kept
-  // in sync with the signed-in account's equipped skin via auth.onChange below -- a purchase
-  // is otherwise invisible in gameplay itself (it only shows on the leaderboard/account
-  // widget), which defeats the point of selling skins in the first place.
-  let dragonEmoji = '🐉';
-  // Some skins (e.g. the red dragon) are the same base glyph with a CSS/canvas color filter
-  // applied over it, since the emoji has no separately paintable parts to reskin directly --
-  // see supabase_skin_color_filter_schema.sql. 'none' when the equipped skin has no filter.
-  let dragonFilter = 'none';
 
   function updateDragonSize(){
     const multiplier = 1 + Math.min(roundsSurvived * DRAGON_GROWTH_PER_EXPLOSION, DRAGON_GROWTH_CAP);
@@ -1272,7 +1274,6 @@ try {
     overlay.classList.remove('hidden');
   });
 
-  window.__boot4=true;
   viewShopBtn.addEventListener('click', () => {
     overlay.classList.add('hidden');
     shopScreen.classList.remove('hidden');
@@ -1304,15 +1305,10 @@ try {
     });
   }
 
-  window.__boot5=true;
   // initial static draw behind overlay
   resetGame();
   draw();
-  window.__boot6=true;
 })();
-} catch (e) {
-  window.__bootError = String(e && e.stack || e);
-}
 
 const isLocalDev = ['localhost','127.0.0.1'].includes(location.hostname);
 if ('serviceWorker' in navigator && !isLocalDev) {
