@@ -451,6 +451,10 @@ import { createMySkins } from './js/myskins.js';
   const COIN_LIFE_FRAMES_FLOOR = 300;    // never faster than ~5s, so it stays a mild nudge
   let coinLifeFrames = COIN_LIFE_FRAMES;
   const COIN_FADE_FRAMES = 90;  // fade over the last ~1.5s
+  let glowClock = 0; // drives the landed-coin sparkle pulse
+  let shakeTimer = 0; // frames of screen shake remaining, decays to 0
+  const SHAKE_FRAMES = 18;
+  const SHAKE_MAG = 10;
 
   // ---------- background clouds (purely decorative, drift across the sky strip above
   // the floor diamond) ----------
@@ -494,7 +498,7 @@ import { createMySkins } from './js/myskins.js';
   }
 
   const pig = {
-    x: W/2, y: H*0.32, baseSize: 60, wobble:0,
+    x: W/2, y: H*0.32, baseSize: 60, wobble:0, feedPunch:0,
     jumpStartX:0, jumpStartY:0, targetX:0, targetY:0, airHeight:0
   };
   const JUMP_ARC_HEIGHT = 110; // visual peak height of the jump, px
@@ -506,7 +510,7 @@ import { createMySkins } from './js/myskins.js';
   // faceX: -1 = facing screen-left, 1 = facing screen-right. Kept separately from `facing`
   // so that moving straight up/down doesn't lose (or randomly flip) the left/right profile.
   // pitch: eased -1..1 (nose-up .. nose-down), driven by up/down input — see drawSingleDragon.
-  const dragon = { x: W/2, y: H*0.72, size: DRAGON_BASE_SIZE, vx:0, vy:0, faceX:1, pitch:0 };
+  const dragon = { x: W/2, y: H*0.72, size: DRAGON_BASE_SIZE, vx:0, vy:0, faceX:1, pitch:0, carryBob:0 };
 
   function updateDragonSize(){
     const multiplier = 1 + Math.min(roundsSurvived * DRAGON_GROWTH_PER_EXPLOSION, DRAGON_GROWTH_CAP);
@@ -710,6 +714,7 @@ import { createMySkins } from './js/myskins.js';
     spawnBurst(pig.x, pig.y, '#ffb703', 40);
     spawnBurst(pig.x, pig.y, '#ff6b6b', 30);
     sfxExplosion();
+    shakeTimer = SHAKE_FRAMES;
     // fling coins outward — grouped into a "batch" so we can detect a full clean sweep
     const n = 5 + Math.floor(score/50);
     const count = Math.min(n,9);
@@ -729,13 +734,14 @@ import { createMySkins } from './js/myskins.js';
   // The pig visibly puffs up as it's fed (up to +60% at max feedProgress) and again
   // mid-jump — used by both rendering and hit-testing so the "reach" matches what's drawn.
   function pigVisualScale(){
-    return (1 + feedProgress*0.12) * (pigState==='jumping' ? 1 + (pig.airHeight/JUMP_ARC_HEIGHT)*0.25 : 1);
+    return (1 + feedProgress*0.12) * (1 + pig.feedPunch*0.2) * (pigState==='jumping' ? 1 + (pig.airHeight/JUMP_ARC_HEIGHT)*0.25 : 1);
   }
 
   // Shared by the walk-in feed and the thrown-burger hit — both count as "successfully
   // fed the pig one burger" and should have identical effects.
   function feedPigSuccess(){
     feedProgress++;
+    pig.feedPunch = 1;
     score += 10;
     updateHud();
     spawnBurst(pig.x, pig.y - 10, '#ffd23f', 10);
@@ -866,8 +872,12 @@ import { createMySkins } from './js/myskins.js';
     }
     updateThrowBtn();
 
+    if (carrying) dragon.carryBob += 0.2*frameScale;
+
     // --- pig states ---
     pig.wobble += 0.15*frameScale;
+    pig.feedPunch = Math.max(pig.feedPunch - 0.08*frameScale, 0);
+    shakeTimer = Math.max(shakeTimer - frameScale, 0);
     if (pigState === 'jumping'){
       jumpTimer -= frameScale;
       const t = 1 - Math.max(jumpTimer,0) / JUMP_DURATION;
@@ -895,6 +905,7 @@ import { createMySkins } from './js/myskins.js';
     }
 
     // --- coin physics ---
+    glowClock += 0.1*frameScale;
     for (const c of coinDrops){
       if (c.landed) continue;
       c.x += c.vx*frameScale; c.y += c.vy*frameScale;
@@ -985,7 +996,8 @@ import { createMySkins } from './js/myskins.js';
     g.addColorStop(0, '#7ec8e3');
     g.addColorStop(1, '#a8dadc');
     ctx.fillStyle = g;
-    ctx.fillRect(0,0,CANVAS_W,CANVAS_H);
+    // padded beyond the canvas so the explosion screen-shake never reveals a gap at the edges
+    ctx.fillRect(-SHAKE_MAG, -SHAKE_MAG, CANVAS_W + SHAKE_MAG*2, CANVAS_H + SHAKE_MAG*2);
 
     drawClouds();
 
@@ -1012,14 +1024,18 @@ import { createMySkins } from './js/myskins.js';
     const r = startR + (endR-startR)*t;
     const center = worldToScreen(pig.targetX, pig.targetY);
     const rad = screenEllipseRadii(r);
+    // in the last stretch before landing, flash faster and faster to sharpen the "dodge now"
+    // cue -- frequency ramps with t so it reads as urgency building, not a constant blink
+    const urgency = Math.max(t - 0.6, 0) / 0.4; // 0 until the last 40%, then ramps to 1
+    const flash = urgency > 0 ? Math.sin(t*60) * urgency : 0;
     ctx.save();
-    ctx.globalAlpha = 0.3 + 0.4*t;
+    ctx.globalAlpha = Math.max(0.3 + 0.4*t + flash*0.25, 0.05);
     ctx.fillStyle = 'rgba(200,20,0,0.35)';
     ctx.beginPath();
     ctx.ellipse(center.sx, center.sy, rad.rx, rad.ry, 0,0,Math.PI*2);
     ctx.fill();
     ctx.strokeStyle = 'rgba(255,60,0,0.9)';
-    ctx.lineWidth = 3;
+    ctx.lineWidth = Math.max(3 + flash*3, 1);
     ctx.stroke();
     ctx.restore();
   }
@@ -1123,10 +1139,11 @@ import { createMySkins } from './js/myskins.js';
     if (invuln>0 && Math.floor(invuln/6)%2===0) ctx.globalAlpha = 0.35;
 
     if (carrying){
+      const bob = Math.sin(dragon.carryBob)*3;
       ctx.font = '26px serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText('🍔', 0, -dragon.size*0.6);
+      ctx.fillText('🍔', 0, -dragon.size*0.6 + bob);
     }
 
     // The dragon glyph has no separate per-direction art, so facing is faked from the one
@@ -1181,8 +1198,17 @@ import { createMySkins } from './js/myskins.js';
     if (c.landed && c.lifeFrames < COIN_FADE_FRAMES){
       ctx.globalAlpha = Math.max(c.lifeFrames / COIN_FADE_FRAMES, 0);
     }
+    let scale = 1;
+    if (c.landed){
+      // gentle "grab me" sparkle while it waits to be picked up, each coin offset so a
+      // cluster doesn't pulse in unison
+      scale = 1 + Math.sin(glowClock*3 + c.x*0.3)*0.12;
+      ctx.shadowColor = '#ffe27a';
+      ctx.shadowBlur = 8 + Math.sin(glowClock*3 + c.x*0.3)*4;
+    }
     ctx.translate(scr.sx, scr.sy);
     ctx.rotate(c.rot);
+    ctx.scale(scale, scale);
     ctx.font = '28px serif';
     ctx.textAlign='center'; ctx.textBaseline='middle';
     ctx.fillText('🪙', 0, 0);
@@ -1214,6 +1240,11 @@ import { createMySkins } from './js/myskins.js';
   }
 
   function draw(){
+    ctx.save();
+    if (shakeTimer > 0){
+      const power = shakeTimer / SHAKE_FRAMES;
+      ctx.translate((Math.random()*2-1)*SHAKE_MAG*power, (Math.random()*2-1)*SHAKE_MAG*power);
+    }
     drawBackground();
     drawShockwave();
     if (pigState === 'jumping') drawLandingShadow();
@@ -1229,6 +1260,7 @@ import { createMySkins } from './js/myskins.js';
     for (const item of depthList) item.run();
 
     drawParticles();
+    ctx.restore();
   }
 
   let lastTime = 0;
