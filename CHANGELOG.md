@@ -2,6 +2,24 @@
 
 Running log of notable changes, kept during dev sessions for reference.
 
+## 2026-08-24
+
+- Fixed signed-in highscore submission ("Couldn't submit — try again" on every game over).
+  The deployed `submit_personal_best` Postgres function had drifted from the repo's schema
+  file: its `select display_name, avatar, color_filter` was missing the `into v_name,
+  v_avatar, v_filter` clause, so plpgsql raised "query has no destination for result data"
+  on every call. Redeployed the correct function directly to the live database -- no repo
+  file was out of date, only what had been pushed to Supabase.
+- Lowered the burger throw cost from 5 coins to 4 (`index.html`), to lean the game a
+  little more toward ranged throwing since walking a burger in for the melee feed wasn't
+  landing as fun. Melee feeding still exists but is no longer the coin-optimal choice from
+  the very first explosion.
+- Added a round of small visual polish, playtested live in-browser: the carried burger
+  now bobs above the dragon; the pig scale-punches briefly on each successful feed; landed
+  coins pulse and glow while waiting to be picked up; pig explosions shake the screen; and
+  the landing-shadow ring flashes faster as the pig closes in on landing, sharpening the
+  "dodge now" cue.
+
 ## 2026-08-21
 
 - Split "pick your skin" out of the Shop into its own screen. The Shop is purchasing-only
