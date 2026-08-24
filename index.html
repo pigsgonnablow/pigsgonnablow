@@ -490,6 +490,56 @@ import { createMySkins } from './js/myskins.js';
     ctx.restore();
   }
 
+  // ---------- static ground decoration (flowers/rocks scattered once at load, purely
+  // cosmetic -- breaks up the flat green floor the same way the sky clouds do overhead).
+  // Kept clear of the pig/dragon spawn points so the opening frame doesn't look cluttered.
+  const groundDecor = [];
+  (function seedGroundDecor(){
+    // rocks are hand-drawn rather than an emoji glyph -- 🪨 isn't in every system font and
+    // was falling back to a blank placeholder box, unlike the flowers below which render fine
+    const flowerEmojis = ['🌼','🌸','🌷'];
+    const clearZones = [[W/2, H*0.32, 90], [W/2, H*0.72, 90]];
+    let attempts = 0;
+    while (groundDecor.length < 14 && attempts < 200){
+      attempts++;
+      const x = rand(30, W-30), y = rand(30, H-30);
+      if (clearZones.some(([cx,cy,r]) => dist(x,y,cx,cy) < r)) continue;
+      if (Math.random() < 0.4){
+        groundDecor.push({ x, y, type:'rock', size: rand(9,14), rot: rand(0,Math.PI*2) });
+      } else {
+        groundDecor.push({ x, y, type:'flower', emoji: flowerEmojis[Math.floor(Math.random()*flowerEmojis.length)], size: rand(16,24) });
+      }
+    }
+  })();
+  function drawSingleRock(d, scr){
+    ctx.save();
+    ctx.translate(scr.sx, scr.sy);
+    ctx.rotate(d.rot);
+    ctx.fillStyle = '#8a8f98';
+    ctx.beginPath();
+    ctx.ellipse(0, 0, d.size, d.size*0.7, 0, 0, Math.PI*2);
+    ctx.fill();
+    ctx.fillStyle = '#a7acb5';
+    ctx.beginPath();
+    ctx.ellipse(-d.size*0.25, -d.size*0.2, d.size*0.4, d.size*0.28, 0, 0, Math.PI*2);
+    ctx.fill();
+    ctx.restore();
+  }
+  function drawGroundDecor(){
+    ctx.save();
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    for (const d of groundDecor){
+      const scr = worldToScreen(d.x, d.y);
+      if (d.type === 'rock'){
+        drawSingleRock(d, scr);
+      } else {
+        ctx.font = d.size + 'px serif';
+        ctx.fillText(d.emoji, scr.sx, scr.sy);
+      }
+    }
+    ctx.restore();
+  }
+
   function formatTime(ms){
     const total = ms/1000;
     const m = Math.floor(total/60);
@@ -1015,6 +1065,8 @@ import { createMySkins } from './js/myskins.js';
     ctx.strokeStyle = '#5aa84c';
     ctx.lineWidth = 4;
     ctx.stroke();
+
+    drawGroundDecor();
   }
 
   function drawLandingShadow(){
