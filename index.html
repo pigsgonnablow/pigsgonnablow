@@ -577,6 +577,70 @@ import { createMySkins } from './js/myskins.js';
     ctx.restore();
   }
 
+  // ---------- grass texture tufts (static short strokes scattered once at load, purely
+  // cosmetic -- breaks up the flat green fill the same way the flowers/rocks above do) ----------
+  const grassTufts = [];
+  (function seedGrassTufts(){
+    for (let i=0;i<40;i++){
+      grassTufts.push({
+        x: rand(20, W-20), y: rand(20, H-20),
+        len: rand(6,12),
+        lean: rand(-4,4),
+        dark: Math.random() < 0.5
+      });
+    }
+  })();
+  function drawGrassTufts(){
+    ctx.save();
+    ctx.lineWidth = 2;
+    ctx.lineCap = 'round';
+    for (const t of grassTufts){
+      const scr = worldToScreen(t.x, t.y);
+      ctx.strokeStyle = t.dark ? 'rgba(74,143,60,0.55)' : 'rgba(150,219,130,0.55)';
+      ctx.beginPath();
+      ctx.moveTo(scr.sx - t.lean*0.5, scr.sy + t.len*0.5);
+      ctx.lineTo(scr.sx + t.lean*0.5, scr.sy - t.len*0.5);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  // ---------- dust motes (a handful of small glowing specks drifting slowly above the
+  // ground, purely decorative -- gives the scene a bit of atmosphere at rest) ----------
+  const motes = [];
+  for (let i=0;i<10;i++){
+    motes.push({
+      x: rand(20, W-20), y: rand(20, H-20),
+      vx: rand(-0.15,0.15), vy: rand(-0.15,0.15),
+      phase: rand(0, Math.PI*2),
+      size: rand(1.5,3)
+    });
+  }
+  function updateMotes(frameScale){
+    for (const m of motes){
+      m.x += m.vx*frameScale;
+      m.y += m.vy*frameScale;
+      m.phase += 0.05*frameScale;
+      if (m.x < 0) m.x = W; else if (m.x > W) m.x = 0;
+      if (m.y < 0) m.y = H; else if (m.y > H) m.y = 0;
+    }
+  }
+  function drawMotes(){
+    ctx.save();
+    for (const m of motes){
+      const scr = worldToScreen(m.x, m.y);
+      const pulse = (Math.sin(m.phase)+1)/2; // 0..1, drives both glow strength and a slight rise
+      ctx.globalAlpha = 0.25 + pulse*0.5;
+      ctx.shadowColor = '#fff4b0';
+      ctx.shadowBlur = 6;
+      ctx.fillStyle = '#fff8d6';
+      ctx.beginPath();
+      ctx.arc(scr.sx, scr.sy - pulse*4, m.size, 0, Math.PI*2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
   function formatTime(ms){
     const total = ms/1000;
     const m = Math.floor(total/60);
@@ -1076,6 +1140,7 @@ import { createMySkins } from './js/myskins.js';
 
     updateClouds(frameScale);
     updateBirds(frameScale);
+    updateMotes(frameScale);
   }
 
   // ---------- drawing ----------
@@ -1105,7 +1170,30 @@ import { createMySkins } from './js/myskins.js';
     ctx.lineWidth = 4;
     ctx.stroke();
 
+    drawGrassTufts();
     drawGroundDecor();
+
+    // edge vignette: darken the floor toward its corners for a bit of depth, clipped to the
+    // diamond (redeclared here since fill/stroke above already consumed the path) so it never
+    // bleeds into the sky
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(c0.sx, c0.sy);
+    ctx.lineTo(c1.sx, c1.sy);
+    ctx.lineTo(c2.sx, c2.sy);
+    ctx.lineTo(c3.sx, c3.sy);
+    ctx.closePath();
+    ctx.clip();
+    const vcx = (c0.sx + c2.sx) / 2, vcy = (c0.sy + c2.sy) / 2;
+    const vign = ctx.createRadialGradient(vcx, vcy, 0, vcx, vcy, Math.max(CANVAS_W, CANVAS_H) * 0.55);
+    vign.addColorStop(0, 'rgba(0,20,0,0)');
+    vign.addColorStop(0.7, 'rgba(0,20,0,0)');
+    vign.addColorStop(1, 'rgba(0,20,0,0.35)');
+    ctx.fillStyle = vign;
+    ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+    ctx.restore();
+
+    drawMotes();
   }
 
   function drawLandingShadow(){

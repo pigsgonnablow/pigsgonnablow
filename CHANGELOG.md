@@ -2,6 +2,18 @@
 
 Running log of notable changes, kept during dev sessions for reference.
 
+## 2026-08-25
+
+- More small world-decoration passes, all purely cosmetic and playtested live in-browser:
+  flowers and hand-drawn pebbles scattered once at load across the grass (kept clear of the
+  pig/dragon spawn points); a few birds with flapping-wing silhouettes drifting across the
+  sky strip, same pattern as the existing clouds; short grass-tuft strokes scattered across
+  the floor to break up the flat green fill; a radial vignette darkening the floor toward
+  its corners, clipped to the isometric diamond so it never bleeds into the sky; and a
+  handful of small glowing dust motes drifting slowly above the ground. (Rocks are
+  hand-drawn rather than the 🪨 emoji, which was rendering as a blank placeholder box on
+  this system's font.)
+
 ## 2026-08-24
 
 - Fixed signed-in highscore submission ("Couldn't submit — try again" on every game over).
