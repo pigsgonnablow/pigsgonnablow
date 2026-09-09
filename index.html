@@ -38,7 +38,9 @@
     letter-spacing:0.5px;
   }
   #hudLeft { display:flex; flex-direction:column; align-items:flex-start; gap:6px; }
+  #level { font-size:14px; color:#ffd23f; letter-spacing:1px; }
   #score { font-size:26px; }
+  #windIndicator { font-size:14px; color:#dff3ff; }
   #exitBtn {
     pointer-events:auto;
     font-family: Arial Black, Arial, sans-serif;
@@ -152,7 +154,9 @@
   <canvas id="game"></canvas>
   <div id="hud">
     <div id="hudLeft">
+      <div id="level">LEVEL 1</div>
       <div id="score">SCORE: 0</div>
+      <div id="windIndicator" class="hidden">💨 WIND</div>
       <button id="exitBtn" title="Exit to title">✕ EXIT</button>
     </div>
     <div id="coins">🪙 0</div>
@@ -168,6 +172,9 @@
     <p>Grab cheeseburgers and stuff them in the pig's mouth. Feed him enough and he'll leap straight at you — watch the landing shadow and <b>DODGE</b> before he comes down and blows! When he explodes, coins scatter everywhere. Grab them for points!</p>
     <p>🎮 Use the joystick (bottom-left) or arrow keys / WASD to move the dragon.</p>
     <p>🍔 Spend 4 coins to throw your burger at the pig from range — press E or tap THROW!</p>
+    <p>📈 Survive 15 escalating <b>LEVELS</b> to clear the farm. Watch for golden burgers (double
+      feed value) from level 3, and wind gusts that shove the dragon around from level 5 —
+      the pig gets faster and meaner every level after that.</p>
     <button id="startBtn">START</button>
     <div style="display:flex; gap:10px; margin-top:10px; flex-wrap:wrap; justify-content:center;">
       <button id="viewLeaderboardBtn" style="padding:10px 22px; font-size:14px; font-weight:900; background:transparent; color:#ffd23f; border:2px solid #ffd23f; border-radius:50px; cursor:pointer; font-family: Arial Black, Arial, sans-serif;">🏆 LEADERBOARD</button>
@@ -216,6 +223,18 @@
     </div>
 
     <button id="restartBtn">PLAY AGAIN</button>
+  </div>
+
+  <div id="victoryScreen" class="hidden" style="position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; background:rgba(10,15,30,0.92); color:#fff; padding:24px; overflow-y:auto; -webkit-overflow-scrolling:touch; touch-action:pan-y;">
+    <div style="font-size:44px;">🎉🐷🎉</div>
+    <h1 style="font-size:32px; color:#ffd23f; text-shadow:3px 3px 0 #c0392b; line-height:1.2;">FARM CLEARED!</h1>
+    <p style="font-size:16px; margin:8px 0; max-width:360px; color:#e8eef5;">You survived all 15 levels. The pig has no more surprises left — but you can keep
+      feeding him for score, or call it here and lock in your run.</p>
+    <p id="victoryScoreText" style="font-size:20px; margin:10px 0 0 0; color:#ffd23f; font-weight:900;">Score: 0</p>
+    <div style="display:flex; gap:10px; margin-top:16px; flex-wrap:wrap; justify-content:center;">
+      <button id="victoryContinueBtn" style="padding:14px 28px; font-size:16px; font-weight:900; background:#ffd23f; color:#7a2e00; border:none; border-radius:50px; cursor:pointer; box-shadow:0 6px 0 #c98e00; font-family: Arial Black, Arial, sans-serif;">KEEP PLAYING</button>
+      <button id="victoryStopBtn" style="padding:14px 28px; font-size:16px; font-weight:900; background:#2ecc71; color:#08331b; border:none; border-radius:50px; cursor:pointer; box-shadow:0 6px 0 #1e8f4e; font-family: Arial Black, Arial, sans-serif;">FINISH &amp; SUBMIT</button>
+    </div>
   </div>
 
   <div id="leaderboardPreview" class="hidden" style="position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; background:rgba(10,15,30,0.92); color:#fff; padding:24px; overflow-y:auto; -webkit-overflow-scrolling:touch; touch-action:pan-y;">
@@ -276,13 +295,19 @@ import { createMySkins } from './js/myskins.js';
   canvas.height = CANVAS_H;
 
   const hudEl = document.getElementById('hud');
+  const levelEl = document.getElementById('level');
   const scoreEl = document.getElementById('score');
   const coinsEl = document.getElementById('coins');
   const timerEl = document.getElementById('timer');
   const livesEl = document.getElementById('lives');
+  const windIndicatorEl = document.getElementById('windIndicator');
   const warningEl = document.getElementById('warning');
   const overlay = document.getElementById('overlay');
   const gameOverEl = document.getElementById('gameOver');
+  const victoryScreen = document.getElementById('victoryScreen');
+  const victoryScoreText = document.getElementById('victoryScoreText');
+  const victoryContinueBtn = document.getElementById('victoryContinueBtn');
+  const victoryStopBtn = document.getElementById('victoryStopBtn');
   const finalScoreEl = document.getElementById('finalScore');
   const scoreSubmitBox = document.getElementById('scoreSubmitBox');
   const scoreNameInput = document.getElementById('scoreNameInput');
@@ -421,7 +446,10 @@ import { createMySkins } from './js/myskins.js';
   let pigState = 'idle'; // idle, jumping, exploding, cooldown
   let cooldownTimer = 0;
   let jumpTimer = 0;
-  const JUMP_DURATION = 75; // ~1.25s at 60fps, dragon's window to escape the landing zone
+  const JUMP_DURATION_BASE = 75; // ~1.25s at 60fps, dragon's window to escape the landing zone
+  const JUMP_DURATION_FLOOR = 45; // never faster than ~0.75s, so it stays dodgeable
+  const JUMP_DURATION_SHRINK_PER_LEVEL = 3;
+  let jumpDuration = JUMP_DURATION_BASE; // set per-jump in feedPigSuccess, scales down past FAST_PIG_LEVEL
   let shockRadius = 0;
   let shockActive = false;
   let invuln = 0;
@@ -436,6 +464,24 @@ import { createMySkins } from './js/myskins.js';
   let startTime = 0;
   let elapsedMs = 0;
   let roundsSurvived = 0;
+
+  // ---------- levels ----------
+  // "Level" is just roundsSurvived+1 dressed up with a name and a banner -- the difficulty
+  // knobs below (shock radius/speed, coin life, burgersToFull) already scale continuously
+  // off roundsSurvived, so leveling doesn't need its own progression curve, only presentation
+  // and a handful of gated gimmicks so the climb isn't pure numbers-go-up.
+  let level = 1;
+  const LEVEL_WIN = 15; // clear this many explosions to see the victory screen
+  let wonGame = false;
+  const GOLDEN_BURGER_LEVEL = 3;   // golden burgers start appearing
+  const WIND_GUST_LEVEL = 5;       // wind gusts start
+  const GUST_STRENGTH = 1.8;       // px/frame at 60fps -- noticeable against the dragon's 4.2 move speed, not overpowering
+  const FAST_PIG_LEVEL = 8;        // jump window starts shrinking past this level
+  let carryingGolden = false;
+  let gustTimer = 0;       // frames until the next gust can start
+  let gustActive = 0;      // frames remaining in the current gust, 0 = none
+  let gustVx = 0, gustVy = 0;
+  let gustArrow = '';
 
   const SHOCK_RADIUS_BASE = 170;
   const SHOCK_RADIUS_GROWTH_PER_ROUND = 10;
@@ -781,6 +827,13 @@ import { createMySkins } from './js/myskins.js';
   function rand(a,b){ return a + Math.random()*(b-a); }
   function dist(x1,y1,x2,y2){ return Math.hypot(x1-x2, y1-y2); }
 
+  // World-space angle -> nearest compass-arrow glyph, purely for the wind gust HUD hint.
+  const COMPASS_ARROWS = ['➡️','↘️','⬇️','↙️','⬅️','↖️','⬆️','↗️'];
+  function angleToArrow(a){
+    const norm = ((a % (Math.PI*2)) + Math.PI*2) % (Math.PI*2);
+    return COMPASS_ARROWS[Math.round(norm/(Math.PI/4)) % 8];
+  }
+
   function resetGame(){
     score = 0; coins = 0; lives = 3; feedProgress = 0; burgersToFull = 5;
     pigState = 'idle'; jumpTimer = 0; cooldownTimer = 0;
@@ -792,6 +845,14 @@ import { createMySkins } from './js/myskins.js';
     carrying = false; invuln = 0;
     elapsedMs = 0;
     roundsSurvived = 0;
+    level = 1;
+    wonGame = false;
+    carryingGolden = false;
+    gustTimer = rand(300,480);
+    gustActive = 0;
+    gustVx = 0; gustVy = 0;
+    windIndicatorEl.classList.add('hidden');
+    jumpDuration = JUMP_DURATION_BASE;
     shockMaxRadius = SHOCK_RADIUS_BASE;
     shockSpeed = SHOCK_SPEED_BASE;
     coinLifeFrames = COIN_LIFE_FRAMES;
@@ -812,10 +873,15 @@ import { createMySkins } from './js/myskins.js';
       y = rand(H*0.46, H-60);
       tries++;
     } while (dist(x,y,pig.x,pig.y) < 110 && tries < 20);
-    groundBurgers.push({x,y,bob:Math.random()*Math.PI*2});
+    // Golden burgers are worth double feed progress and score -- gated behind
+    // GOLDEN_BURGER_LEVEL so the first couple levels stay simple, and capped at one
+    // on the field at a time so they stay a nice find rather than the new normal.
+    const golden = level >= GOLDEN_BURGER_LEVEL && !groundBurgers.some(b => b.golden) && Math.random() < 0.25;
+    groundBurgers.push({x,y,bob:Math.random()*Math.PI*2, golden});
   }
 
   function updateHud(){
+    levelEl.textContent = 'LEVEL ' + level;
     scoreEl.textContent = 'SCORE: ' + score;
     coinsEl.textContent = '🪙 ' + coins;
     timerEl.textContent = formatTime(elapsedMs);
@@ -841,6 +907,8 @@ import { createMySkins } from './js/myskins.js';
   function throwBurger(){
     if (!running || !carrying || pigState !== 'idle' || coins < BURGER_THROW_COST) return;
     carrying = false;
+    const golden = carryingGolden;
+    carryingGolden = false;
     coins -= BURGER_THROW_COST;
     updateHud();
     updateThrowBtn();
@@ -848,7 +916,7 @@ import { createMySkins } from './js/myskins.js';
     const speed = 11;
     burgerProjectiles.push({
       x: dragon.x, y: dragon.y, vx: Math.cos(angle)*speed, vy: Math.sin(angle)*speed,
-      rot: 0, life: 90
+      rot: 0, life: 90, golden
     });
     sfxThrow();
   }
@@ -889,20 +957,24 @@ import { createMySkins } from './js/myskins.js';
   }
 
   // Shared by the walk-in feed and the thrown-burger hit — both count as "successfully
-  // fed the pig one burger" and should have identical effects.
-  function feedPigSuccess(){
-    feedProgress++;
+  // fed the pig one burger" and should have identical effects. `golden` doubles the
+  // feed progress and score, for the rare golden-burger pickup (see GOLDEN_BURGER_LEVEL).
+  function feedPigSuccess(golden){
+    feedProgress += golden ? 2 : 1;
     pig.feedPunch = 1;
-    score += 10;
+    score += golden ? 30 : 10;
     updateHud();
     spawnBurst(pig.x, pig.y - 10, '#ffd23f', 10);
+    if (golden) spawnBurst(pig.x, pig.y - 10, '#fff8d6', 14);
     sfxFeed();
     if (feedProgress >= burgersToFull){
       pigState = 'jumping';
-      jumpTimer = JUMP_DURATION;
+      jumpDuration = Math.max(JUMP_DURATION_BASE - Math.max(level-FAST_PIG_LEVEL,0)*JUMP_DURATION_SHRINK_PER_LEVEL, JUMP_DURATION_FLOOR);
+      jumpTimer = jumpDuration;
       pig.jumpStartX = pig.x; pig.jumpStartY = pig.y;
       pig.targetX = Math.max(50, Math.min(W-50, dragon.x));
       pig.targetY = Math.max(H*0.3, Math.min(H-70, dragon.y));
+      bonusMsgTimer = 0; // cancel any pending level-up/bonus banner -- the jump warning takes priority
       warningEl.textContent = "PIG'S GONNA BLOW!";
       warningEl.style.display = 'block';
       sfxJump();
@@ -930,12 +1002,38 @@ import { createMySkins } from './js/myskins.js';
     running = false;
     joystick.classList.add('hidden');
     throwBtn.classList.add('hidden');
+    windIndicatorEl.classList.add('hidden');
     sfxGameOver();
     finalScoreEl.textContent = 'Score: ' + score + '  •  Time: ' + formatTime(elapsedMs);
     gameOverEl.classList.remove('hidden');
 
     leaderboard.onGameOver(score);
   }
+
+  // Reached after LEVEL_WIN explosions survived. Pauses the run (rather than ending it)
+  // so a player who wants to keep chasing score for the leaderboard can resume seamlessly,
+  // while a player who's satisfied can finish and submit from here.
+  function showVictoryScreen(){
+    running = false;
+    joystick.classList.add('hidden');
+    throwBtn.classList.add('hidden');
+    windIndicatorEl.classList.add('hidden');
+    sfxBonus();
+    victoryScoreText.textContent = 'Score: ' + score + '  •  Time: ' + formatTime(elapsedMs);
+    victoryScreen.classList.remove('hidden');
+  }
+  function resumeAfterVictory(){
+    victoryScreen.classList.add('hidden');
+    joystick.classList.remove('hidden');
+    running = true;
+    lastTime = performance.now();
+    requestAnimationFrame(loop);
+  }
+  victoryContinueBtn.addEventListener('click', resumeAfterVictory);
+  victoryStopBtn.addEventListener('click', () => {
+    victoryScreen.classList.add('hidden');
+    endGame();
+  });
 
   function update(frameScale){
     // --- movement ---
@@ -985,6 +1083,30 @@ import { createMySkins } from './js/myskins.js';
     dragon.vy += (my*speed - dragon.vy) * accelThisFrame;
     dragon.x += dragon.vx * frameScale;
     dragon.y += dragon.vy * frameScale;
+    // --- wind gusts (from WIND_GUST_LEVEL): a periodic shove on top of player input,
+    // strong enough to fight the joystick but not so strong it overrides it outright.
+    // Held off during the jump/explosion beat so the dodge stays purely about the pig.
+    if (level >= WIND_GUST_LEVEL){
+      if (gustActive > 0){
+        gustActive -= frameScale;
+        dragon.x += gustVx*frameScale;
+        dragon.y += gustVy*frameScale;
+        windIndicatorEl.classList.remove('hidden');
+        windIndicatorEl.textContent = '💨 WIND ' + gustArrow;
+        if (gustActive <= 0){
+          windIndicatorEl.classList.add('hidden');
+          gustTimer = rand(360,600);
+        }
+      } else if (pigState === 'idle' || pigState === 'cooldown'){
+        gustTimer -= frameScale;
+        if (gustTimer <= 0){
+          const a = rand(0, Math.PI*2);
+          gustActive = rand(90,150);
+          gustVx = Math.cos(a)*GUST_STRENGTH; gustVy = Math.sin(a)*GUST_STRENGTH;
+          gustArrow = angleToArrow(a);
+        }
+      }
+    }
     dragon.x = Math.max(dragon.size*0.5, Math.min(W-dragon.size*0.5, dragon.x));
     dragon.y = Math.max(dragon.size*0.5, Math.min(H-dragon.size*0.5, dragon.y));
 
@@ -997,6 +1119,7 @@ import { createMySkins } from './js/myskins.js';
         if (withinScreenRange(dragon.x,dragon.y,b.x,b.y, dragon.size*0.55 + 14)){
           groundBurgers.splice(i,1);
           carrying = true;
+          carryingGolden = !!b.golden;
           break;
         }
       }
@@ -1006,7 +1129,9 @@ import { createMySkins } from './js/myskins.js';
     if (carrying && pigState === 'idle'){
       if (withinScreenRange(dragon.x,dragon.y,pig.x,pig.y, dragon.size*0.5 + pig.baseSize*0.6*pigVisualScale())){
         carrying = false;
-        feedPigSuccess();
+        const golden = carryingGolden;
+        carryingGolden = false;
+        feedPigSuccess(golden);
       }
     }
 
@@ -1016,7 +1141,7 @@ import { createMySkins } from './js/myskins.js';
       b.x += b.vx*frameScale; b.y += b.vy*frameScale; b.rot += 0.3*frameScale; b.life -= frameScale;
       if (pigState === 'idle' && withinScreenRange(b.x,b.y,pig.x,pig.y, pig.baseSize*0.6*pigVisualScale())){
         burgerProjectiles.splice(i,1);
-        feedPigSuccess();
+        feedPigSuccess(b.golden);
         continue;
       }
       if (b.life <= 0) burgerProjectiles.splice(i,1);
@@ -1031,7 +1156,7 @@ import { createMySkins } from './js/myskins.js';
     shakeTimer = Math.max(shakeTimer - frameScale, 0);
     if (pigState === 'jumping'){
       jumpTimer -= frameScale;
-      const t = 1 - Math.max(jumpTimer,0) / JUMP_DURATION;
+      const t = 1 - Math.max(jumpTimer,0) / jumpDuration;
       pig.x = pig.jumpStartX + (pig.targetX - pig.jumpStartX) * t;
       pig.y = pig.jumpStartY + (pig.targetY - pig.jumpStartY) * t;
       pig.airHeight = Math.sin(t * Math.PI) * JUMP_ARC_HEIGHT;
@@ -1049,6 +1174,18 @@ import { createMySkins } from './js/myskins.js';
         shockActive = false;
         feedProgress = 0;
         burgersToFull = Math.max(3, 5 - Math.floor(score/200));
+
+        level = roundsSurvived + 1;
+        updateHud();
+        if (!wonGame && roundsSurvived >= LEVEL_WIN){
+          wonGame = true;
+          showVictoryScreen();
+        } else {
+          bonusMsgTimer = 70;
+          warningEl.textContent = 'LEVEL ' + level + '!';
+          warningEl.style.display = 'block';
+          sfxBonus();
+        }
       }
     } else if (pigState === 'cooldown'){
       cooldownTimer -= frameScale;
@@ -1197,7 +1334,7 @@ import { createMySkins } from './js/myskins.js';
   }
 
   function drawLandingShadow(){
-    const t = 1 - Math.max(jumpTimer,0) / JUMP_DURATION; // 0 at takeoff, 1 at landing
+    const t = 1 - Math.max(jumpTimer,0) / jumpDuration; // 0 at takeoff, 1 at landing
     const startR = pig.baseSize*2.2;
     const endR = pig.baseSize*0.85;
     const r = startR + (endR-startR)*t;
@@ -1319,10 +1456,15 @@ import { createMySkins } from './js/myskins.js';
 
     if (carrying){
       const bob = Math.sin(dragon.carryBob)*3;
-      ctx.font = '26px serif';
+      if (carryingGolden){
+        ctx.shadowColor = '#ffe27a';
+        ctx.shadowBlur = 12;
+      }
+      ctx.font = (carryingGolden ? 30 : 26) + 'px serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillText('🍔', 0, -dragon.size*0.6 + bob);
+      ctx.shadowBlur = 0;
     }
 
     // The dragon glyph has no separate per-direction art, so facing is faked from the one
@@ -1365,7 +1507,11 @@ import { createMySkins } from './js/myskins.js';
     b.bob += 0.06;
     const scr = worldToScreen(b.x, b.y, Math.sin(b.bob)*4);
     ctx.save();
-    ctx.font = '30px serif';
+    if (b.golden){
+      ctx.shadowColor = '#ffe27a';
+      ctx.shadowBlur = 14 + Math.sin(b.bob*2)*4;
+    }
+    ctx.font = (b.golden ? 36 : 30) + 'px serif';
     ctx.textAlign='center'; ctx.textBaseline='middle';
     ctx.fillText('🍔', scr.sx, scr.sy);
     ctx.restore();
@@ -1397,6 +1543,10 @@ import { createMySkins } from './js/myskins.js';
   function drawSingleBurgerProjectile(b){
     const scr = worldToScreen(b.x, b.y);
     ctx.save();
+    if (b.golden){
+      ctx.shadowColor = '#ffe27a';
+      ctx.shadowBlur = 12;
+    }
     ctx.translate(scr.sx, scr.sy);
     ctx.rotate(b.rot);
     ctx.font = '28px serif';
