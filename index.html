@@ -482,6 +482,8 @@ import { createMySkins } from './js/myskins.js';
   let gustActive = 0;      // frames remaining in the current gust, 0 = none
   let gustVx = 0, gustVy = 0;
   let gustArrow = '';
+  let gustScreenAngle = 0; // gust direction converted to screen space, for the on-canvas arrow/streaks
+  let windStreaks = []; // drifting speed-line particles, purely visual, spawned while a gust is active
 
   const SHOCK_RADIUS_BASE = 170;
   const SHOCK_RADIUS_GROWTH_PER_ROUND = 10;
@@ -851,6 +853,7 @@ import { createMySkins } from './js/myskins.js';
     gustTimer = rand(300,480);
     gustActive = 0;
     gustVx = 0; gustVy = 0;
+    windStreaks = [];
     windIndicatorEl.classList.add('hidden');
     jumpDuration = JUMP_DURATION_BASE;
     shockMaxRadius = SHOCK_RADIUS_BASE;
@@ -897,6 +900,21 @@ import { createMySkins } from './js/myskins.js';
         life:1, color, size:rand(3,7)
       });
     }
+  }
+
+  // Spawns one speed-line particle at the upwind edge of the canvas, drifting across in
+  // gustScreenAngle so it reads as "the air moving that way" rather than just a HUD label.
+  function spawnWindStreak(){
+    const dirX = Math.cos(gustScreenAngle), dirY = Math.sin(gustScreenAngle);
+    const perpX = -dirY, perpY = dirX;
+    const cx = CANVAS_W/2, cy = CANVAS_H/2;
+    const backDist = Math.max(CANVAS_W,CANVAS_H)*0.65;
+    const perpOffset = rand(-Math.max(CANVAS_W,CANVAS_H)*0.65, Math.max(CANVAS_W,CANVAS_H)*0.65);
+    windStreaks.push({
+      x: cx - dirX*backDist + perpX*perpOffset,
+      y: cy - dirY*backDist + perpY*perpOffset,
+      len: rand(22,42), speed: rand(9,15), life: 1, alpha: rand(0.35,0.65)
+    });
   }
 
   function updateThrowBtn(){
@@ -1093,6 +1111,7 @@ import { createMySkins } from './js/myskins.js';
         dragon.y += gustVy*frameScale;
         windIndicatorEl.classList.remove('hidden');
         windIndicatorEl.textContent = '💨 WIND ' + gustArrow;
+        if (Math.random() < 0.6*frameScale) spawnWindStreak();
         if (gustActive <= 0){
           windIndicatorEl.classList.add('hidden');
           gustTimer = rand(360,600);
@@ -1104,6 +1123,11 @@ import { createMySkins } from './js/myskins.js';
           gustActive = rand(90,150);
           gustVx = Math.cos(a)*GUST_STRENGTH; gustVy = Math.sin(a)*GUST_STRENGTH;
           gustArrow = angleToArrow(a);
+          // Iso projection is a fixed linear transform, so a direction converts to screen
+          // space the same way regardless of where it's measured from -- (0,0) is as good
+          // an anchor as the dragon's position for finding the on-screen push angle.
+          const d0 = worldToScreen(0,0), d1 = worldToScreen(Math.cos(a)*10, Math.sin(a)*10);
+          gustScreenAngle = Math.atan2(d1.sy-d0.sy, d1.sx-d0.sx);
         }
       }
     }
@@ -1266,6 +1290,17 @@ import { createMySkins } from './js/myskins.js';
       const p = particles[i];
       p.x += p.vx*frameScale; p.y += p.vy*frameScale; p.vy += 0.15*frameScale; p.life -= 0.02*frameScale;
       if (p.life <= 0) particles.splice(i,1);
+    }
+
+    // --- wind streaks (purely visual, see spawnWindStreak) ---
+    for (let i=windStreaks.length-1;i>=0;i--){
+      const s = windStreaks[i];
+      s.x += Math.cos(gustScreenAngle)*s.speed*frameScale;
+      s.y += Math.sin(gustScreenAngle)*s.speed*frameScale;
+      s.life -= 0.012*frameScale;
+      if (s.life <= 0 || s.x < -60 || s.x > CANVAS_W+60 || s.y < -60 || s.y > CANVAS_H+60){
+        windStreaks.splice(i,1);
+      }
     }
 
     // --- spawn new ground burgers ---
@@ -1555,6 +1590,47 @@ import { createMySkins } from './js/myskins.js';
     ctx.restore();
   }
 
+  function drawWindStreaks(){
+    if (!windStreaks.length) return;
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255,255,255,0.7)';
+    ctx.lineWidth = 2;
+    ctx.lineCap = 'round';
+    const dx = Math.cos(gustScreenAngle), dy = Math.sin(gustScreenAngle);
+    for (const s of windStreaks){
+      ctx.globalAlpha = s.alpha * Math.max(s.life,0);
+      ctx.beginPath();
+      ctx.moveTo(s.x, s.y);
+      ctx.lineTo(s.x - dx*s.len, s.y - dy*s.len);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  // A pulsing arrow parked just off the dragon, rotated to point the way the current gust
+  // is pushing -- the HUD's "💨 WIND ➡️" text alone was too easy to miss mid-dodge.
+  function drawWindArrow(){
+    if (gustActive <= 0) return;
+    const scr = worldToScreen(dragon.x, dragon.y);
+    const pulse = 1 + Math.sin(glowClock*4)*0.15;
+    const offset = dragon.size*0.95;
+    const ax = scr.sx + Math.cos(gustScreenAngle)*offset;
+    const ay = scr.sy + Math.sin(gustScreenAngle)*offset;
+    ctx.save();
+    ctx.translate(ax, ay);
+    ctx.rotate(gustScreenAngle);
+    ctx.scale(pulse, pulse);
+    ctx.fillStyle = 'rgba(223,243,255,0.9)';
+    ctx.strokeStyle = 'rgba(90,140,180,0.9)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(15,0); ctx.lineTo(-7,9); ctx.lineTo(-2,0); ctx.lineTo(-7,-9);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
+  }
+
   function drawParticles(){
     for (const p of particles){
       const scr = worldToScreen(p.x, p.y);
@@ -1575,6 +1651,7 @@ import { createMySkins } from './js/myskins.js';
       ctx.translate((Math.random()*2-1)*SHAKE_MAG*power, (Math.random()*2-1)*SHAKE_MAG*power);
     }
     drawBackground();
+    drawWindStreaks();
     drawShockwave();
     if (pigState === 'jumping') drawLandingShadow();
 
@@ -1587,6 +1664,7 @@ import { createMySkins } from './js/myskins.js';
     for (const b of burgerProjectiles) depthList.push({ depth: b.x + b.y, run: () => drawSingleBurgerProjectile(b) });
     depthList.sort((a,b) => a.depth - b.depth);
     for (const item of depthList) item.run();
+    drawWindArrow();
 
     drawParticles();
     ctx.restore();
