@@ -484,6 +484,8 @@ import { createMySkins } from './js/myskins.js';
   let gustArrow = '';
   let gustScreenAngle = 0; // gust direction converted to screen space, for the on-canvas arrow/streaks
   let windStreaks = []; // drifting speed-line particles, purely visual, spawned while a gust is active
+  let windLeaves = []; // tumbling leaf debris blown across the ground, purely visual
+  let dragonTrail = []; // recent dragon world-positions while gusting -- draws as a motion smear pointing upwind
 
   const SHOCK_RADIUS_BASE = 170;
   const SHOCK_RADIUS_GROWTH_PER_ROUND = 10;
@@ -854,6 +856,8 @@ import { createMySkins } from './js/myskins.js';
     gustActive = 0;
     gustVx = 0; gustVy = 0;
     windStreaks = [];
+    windLeaves = [];
+    dragonTrail = [];
     windIndicatorEl.classList.add('hidden');
     jumpDuration = JUMP_DURATION_BASE;
     shockMaxRadius = SHOCK_RADIUS_BASE;
@@ -914,6 +918,22 @@ import { createMySkins } from './js/myskins.js';
       x: cx - dirX*backDist + perpX*perpOffset,
       y: cy - dirY*backDist + perpY*perpOffset,
       len: rand(22,42), speed: rand(9,15), life: 1, alpha: rand(0.35,0.65)
+    });
+  }
+
+  // Leaf debris tumbling across the ground in the gust direction -- reads as "wind" far
+  // more unmistakably than an abstract line or arrow does.
+  function spawnWindLeaf(){
+    const dirX = Math.cos(gustScreenAngle), dirY = Math.sin(gustScreenAngle);
+    const perpX = -dirY, perpY = dirX;
+    const cx = CANVAS_W/2, cy = CANVAS_H/2;
+    const backDist = Math.max(CANVAS_W,CANVAS_H)*0.65;
+    const perpOffset = rand(-Math.max(CANVAS_W,CANVAS_H)*0.65, Math.max(CANVAS_W,CANVAS_H)*0.65);
+    windLeaves.push({
+      x: cx - dirX*backDist + perpX*perpOffset,
+      y: cy - dirY*backDist + perpY*perpOffset,
+      speed: rand(6,10), rot: rand(0,Math.PI*2), spin: rand(-0.2,0.2),
+      size: rand(14,20), life: 1
     });
   }
 
@@ -1111,7 +1131,10 @@ import { createMySkins } from './js/myskins.js';
         dragon.y += gustVy*frameScale;
         windIndicatorEl.classList.remove('hidden');
         windIndicatorEl.textContent = '💨 WIND ' + gustArrow;
-        if (Math.random() < 0.6*frameScale) spawnWindStreak();
+        if (Math.random() < 1.4*frameScale) spawnWindStreak();
+        if (Math.random() < 0.35*frameScale) spawnWindLeaf();
+        dragonTrail.push({x:dragon.x, y:dragon.y});
+        if (dragonTrail.length > 12) dragonTrail.shift();
         if (gustActive <= 0){
           windIndicatorEl.classList.add('hidden');
           gustTimer = rand(360,600);
@@ -1131,6 +1154,7 @@ import { createMySkins } from './js/myskins.js';
         }
       }
     }
+    if (gustActive <= 0 && dragonTrail.length) dragonTrail.shift(); // drain the smear out once the gust ends
     dragon.x = Math.max(dragon.size*0.5, Math.min(W-dragon.size*0.5, dragon.x));
     dragon.y = Math.max(dragon.size*0.5, Math.min(H-dragon.size*0.5, dragon.y));
 
@@ -1300,6 +1324,17 @@ import { createMySkins } from './js/myskins.js';
       s.life -= 0.012*frameScale;
       if (s.life <= 0 || s.x < -60 || s.x > CANVAS_W+60 || s.y < -60 || s.y > CANVAS_H+60){
         windStreaks.splice(i,1);
+      }
+    }
+    // --- wind leaves (purely visual, see spawnWindLeaf) ---
+    for (let i=windLeaves.length-1;i>=0;i--){
+      const lf = windLeaves[i];
+      lf.x += Math.cos(gustScreenAngle)*lf.speed*frameScale;
+      lf.y += Math.sin(gustScreenAngle)*lf.speed*frameScale;
+      lf.rot += lf.spin*frameScale;
+      lf.life -= 0.01*frameScale;
+      if (lf.life <= 0 || lf.x < -60 || lf.x > CANVAS_W+60 || lf.y < -60 || lf.y > CANVAS_H+60){
+        windLeaves.splice(i,1);
       }
     }
 
@@ -1607,6 +1642,43 @@ import { createMySkins } from './js/myskins.js';
     ctx.restore();
   }
 
+  function drawWindLeaves(){
+    if (!windLeaves.length) return;
+    ctx.save();
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    for (const lf of windLeaves){
+      ctx.globalAlpha = Math.max(lf.life,0);
+      ctx.save();
+      ctx.translate(lf.x, lf.y);
+      ctx.rotate(lf.rot);
+      ctx.font = lf.size + 'px serif';
+      ctx.fillText('🍃', 0, 0);
+      ctx.restore();
+    }
+    ctx.restore();
+  }
+
+  // Faint copies of the dragon at its recent positions while gusting -- since those
+  // positions are upwind of the current one, the smear itself points the push direction,
+  // tied directly to real motion rather than a separate decorative effect.
+  function drawDragonTrail(){
+    if (!dragonTrail.length) return;
+    ctx.save();
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.font = dragon.size + 'px serif';
+    for (let i=0;i<dragonTrail.length;i++){
+      const p = dragonTrail[i];
+      const scr = worldToScreen(p.x, p.y);
+      ctx.globalAlpha = ((i+1)/dragonTrail.length) * 0.3;
+      ctx.save();
+      ctx.translate(scr.sx, scr.sy);
+      ctx.scale(-dragon.faceX, 1); // match the main dragon's mirror so the smear reads as the same glyph
+      ctx.fillText(dragonEmoji, 0, 0);
+      ctx.restore();
+    }
+    ctx.restore();
+  }
+
   // A pulsing arrow parked just off the dragon, rotated to point the way the current gust
   // is pushing -- the HUD's "💨 WIND ➡️" text alone was too easy to miss mid-dodge.
   function drawWindArrow(){
@@ -1651,7 +1723,9 @@ import { createMySkins } from './js/myskins.js';
       ctx.translate((Math.random()*2-1)*SHAKE_MAG*power, (Math.random()*2-1)*SHAKE_MAG*power);
     }
     drawBackground();
+    drawWindLeaves();
     drawWindStreaks();
+    drawDragonTrail();
     drawShockwave();
     if (pigState === 'jumping') drawLandingShadow();
 
