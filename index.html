@@ -832,6 +832,16 @@ import { createMySkins } from './js/myskins.js';
   function rand(a,b){ return a + Math.random()*(b-a); }
   function dist(x1,y1,x2,y2){ return Math.hypot(x1-x2, y1-y2); }
 
+  // Half-extent of the CANVAS_W x CANVAS_H rectangle (centered on itself) as measured
+  // along a given direction -- i.e. how far from center you have to go along that
+  // direction before leaving the rectangle. Used to size wind-effect spawn boxes so a
+  // gust's perpendicular spread never overshoots the actual canvas width/height in that
+  // direction (a fixed max(CANVAS_W,CANVAS_H) radius was too generous for near-axis-aligned
+  // gusts and let streaks/leaves/swooshes spawn and travel entirely off-screen).
+  function rectHalfExtentAlong(ux, uy){
+    return Math.abs(ux)*CANVAS_W/2 + Math.abs(uy)*CANVAS_H/2;
+  }
+
   // World-space angle -> nearest compass-arrow glyph, purely for the wind gust HUD hint.
   const COMPASS_ARROWS = ['➡️','↘️','⬇️','↙️','⬅️','↖️','⬆️','↗️'];
   function angleToArrow(a){
@@ -914,8 +924,8 @@ import { createMySkins } from './js/myskins.js';
     const dirX = Math.cos(gustScreenAngle), dirY = Math.sin(gustScreenAngle);
     const perpX = -dirY, perpY = dirX;
     const cx = CANVAS_W/2, cy = CANVAS_H/2;
-    const backDist = Math.max(CANVAS_W,CANVAS_H)*0.65;
-    const perpOffset = rand(-Math.max(CANVAS_W,CANVAS_H)*0.65, Math.max(CANVAS_W,CANVAS_H)*0.65);
+    const backDist = rectHalfExtentAlong(dirX,dirY) + 40;
+    const perpOffset = rand(-rectHalfExtentAlong(perpX,perpY), rectHalfExtentAlong(perpX,perpY));
     windStreaks.push({
       x: cx - dirX*backDist + perpX*perpOffset,
       y: cy - dirY*backDist + perpY*perpOffset,
@@ -929,8 +939,8 @@ import { createMySkins } from './js/myskins.js';
     const dirX = Math.cos(gustScreenAngle), dirY = Math.sin(gustScreenAngle);
     const perpX = -dirY, perpY = dirX;
     const cx = CANVAS_W/2, cy = CANVAS_H/2;
-    const backDist = Math.max(CANVAS_W,CANVAS_H)*0.65;
-    const perpOffset = rand(-Math.max(CANVAS_W,CANVAS_H)*0.65, Math.max(CANVAS_W,CANVAS_H)*0.65);
+    const backDist = rectHalfExtentAlong(dirX,dirY) + 40;
+    const perpOffset = rand(-rectHalfExtentAlong(perpX,perpY), rectHalfExtentAlong(perpX,perpY));
     windLeaves.push({
       x: cx - dirX*backDist + perpX*perpOffset,
       y: cy - dirY*backDist + perpY*perpOffset,
@@ -946,9 +956,8 @@ import { createMySkins } from './js/myskins.js';
     const dirX = Math.cos(gustScreenAngle), dirY = Math.sin(gustScreenAngle);
     const perpX = -dirY, perpY = dirX;
     const cx = CANVAS_W/2, cy = CANVAS_H/2;
-    const span = Math.max(CANVAS_W,CANVAS_H);
-    const backDist = span*0.7;
-    const perpOffset = rand(-span*0.6, span*0.6);
+    const backDist = rectHalfExtentAlong(dirX,dirY) + 40;
+    const perpOffset = rand(-rectHalfExtentAlong(perpX,perpY), rectHalfExtentAlong(perpX,perpY));
     windSwooshes.push({
       x: cx - dirX*backDist + perpX*perpOffset,
       y: cy - dirY*backDist + perpY*perpOffset,
