@@ -485,6 +485,7 @@ import { createMySkins } from './js/myskins.js';
   let gustScreenAngle = 0; // gust direction converted to screen space, for the on-canvas arrow/streaks
   let windStreaks = []; // drifting speed-line particles, purely visual, spawned while a gust is active
   let windLeaves = []; // tumbling leaf debris blown across the ground, purely visual
+  let windSwooshes = []; // large curved "gust slash" shapes sweeping across the screen, purely visual
   let dragonTrail = []; // recent dragon world-positions while gusting -- draws as a motion smear pointing upwind
 
   const SHOCK_RADIUS_BASE = 170;
@@ -857,6 +858,7 @@ import { createMySkins } from './js/myskins.js';
     gustVx = 0; gustVy = 0;
     windStreaks = [];
     windLeaves = [];
+    windSwooshes = [];
     dragonTrail = [];
     windIndicatorEl.classList.add('hidden');
     jumpDuration = JUMP_DURATION_BASE;
@@ -934,6 +936,25 @@ import { createMySkins } from './js/myskins.js';
       y: cy - dirY*backDist + perpY*perpOffset,
       speed: rand(6,10), rot: rand(0,Math.PI*2), spin: rand(-0.2,0.2),
       size: rand(14,20), life: 1
+    });
+  }
+
+  // Large curved "gust slash" shapes -- the classic wind-in-motion look (a bent stroke,
+  // not a straight line) -- sweeping across the whole screen. This is the primary "wind is
+  // physically moving through here" cue; streaks/leaves/the dragon smear reinforce it.
+  function spawnWindSwoosh(){
+    const dirX = Math.cos(gustScreenAngle), dirY = Math.sin(gustScreenAngle);
+    const perpX = -dirY, perpY = dirX;
+    const cx = CANVAS_W/2, cy = CANVAS_H/2;
+    const span = Math.max(CANVAS_W,CANVAS_H);
+    const backDist = span*0.7;
+    const perpOffset = rand(-span*0.6, span*0.6);
+    windSwooshes.push({
+      x: cx - dirX*backDist + perpX*perpOffset,
+      y: cy - dirY*backDist + perpY*perpOffset,
+      len: rand(150,240), speed: rand(13,19),
+      curve: rand(20,38) * (Math.random() < 0.5 ? 1 : -1),
+      life: 1, alpha: rand(0.5,0.75)
     });
   }
 
@@ -1133,6 +1154,7 @@ import { createMySkins } from './js/myskins.js';
         windIndicatorEl.textContent = '💨 WIND ' + gustArrow;
         if (Math.random() < 1.4*frameScale) spawnWindStreak();
         if (Math.random() < 0.35*frameScale) spawnWindLeaf();
+        if (Math.random() < 0.5*frameScale) spawnWindSwoosh();
         dragonTrail.push({x:dragon.x, y:dragon.y});
         if (dragonTrail.length > 12) dragonTrail.shift();
         if (gustActive <= 0){
@@ -1324,6 +1346,16 @@ import { createMySkins } from './js/myskins.js';
       s.life -= 0.012*frameScale;
       if (s.life <= 0 || s.x < -60 || s.x > CANVAS_W+60 || s.y < -60 || s.y > CANVAS_H+60){
         windStreaks.splice(i,1);
+      }
+    }
+    // --- wind swooshes (purely visual, see spawnWindSwoosh) ---
+    for (let i=windSwooshes.length-1;i>=0;i--){
+      const s = windSwooshes[i];
+      s.x += Math.cos(gustScreenAngle)*s.speed*frameScale;
+      s.y += Math.sin(gustScreenAngle)*s.speed*frameScale;
+      s.life -= 0.009*frameScale;
+      if (s.life <= 0 || s.x < -120 || s.x > CANVAS_W+120 || s.y < -120 || s.y > CANVAS_H+120){
+        windSwooshes.splice(i,1);
       }
     }
     // --- wind leaves (purely visual, see spawnWindLeaf) ---
@@ -1642,6 +1674,32 @@ import { createMySkins } from './js/myskins.js';
     ctx.restore();
   }
 
+  function drawWindSwooshes(){
+    if (!windSwooshes.length) return;
+    const dirX = Math.cos(gustScreenAngle), dirY = Math.sin(gustScreenAngle);
+    const perpX = -dirY, perpY = dirX;
+    ctx.save();
+    ctx.lineCap = 'round';
+    for (const s of windSwooshes){
+      const x0 = s.x, y0 = s.y;
+      const x1 = s.x - dirX*s.len, y1 = s.y - dirY*s.len;
+      const mx = (x0+x1)/2 + perpX*s.curve, my = (y0+y1)/2 + perpY*s.curve;
+      ctx.globalAlpha = s.alpha * Math.max(s.life,0);
+      ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.moveTo(x0,y0);
+      ctx.quadraticCurveTo(mx,my,x1,y1);
+      ctx.stroke();
+      // a thinner, dimmer echo just behind the main slash for a bit of thickness/depth
+      ctx.globalAlpha = s.alpha * 0.4 * Math.max(s.life,0);
+      ctx.lineWidth = 8;
+      ctx.strokeStyle = 'rgba(223,243,255,0.6)';
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
   function drawWindLeaves(){
     if (!windLeaves.length) return;
     ctx.save();
@@ -1725,6 +1783,7 @@ import { createMySkins } from './js/myskins.js';
     drawBackground();
     drawWindLeaves();
     drawWindStreaks();
+    drawWindSwooshes();
     drawDragonTrail();
     drawShockwave();
     if (pigState === 'jumping') drawLandingShadow();
