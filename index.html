@@ -1567,15 +1567,25 @@ import { createMySkins } from './js/myskins.js';
 
     if (carrying){
       const bob = Math.sin(dragon.carryBob)*3;
+      const by = -dragon.size*0.6 + bob;
       if (carryingGolden){
+        const halo = ctx.createRadialGradient(0, by, 0, 0, by, 22);
+        halo.addColorStop(0, 'rgba(255,226,122,0.55)');
+        halo.addColorStop(1, 'rgba(255,226,122,0)');
+        ctx.fillStyle = halo;
+        ctx.beginPath();
+        ctx.arc(0, by, 22, 0, Math.PI*2);
+        ctx.fill();
         ctx.shadowColor = '#ffe27a';
-        ctx.shadowBlur = 12;
+        ctx.shadowBlur = 14;
+        ctx.filter = 'sepia(1) saturate(6) hue-rotate(-10deg) brightness(1.15)';
       }
       ctx.font = (carryingGolden ? 30 : 26) + 'px serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText('🍔', 0, -dragon.size*0.6 + bob);
+      ctx.fillText('🍔', 0, by);
       ctx.shadowBlur = 0;
+      ctx.filter = 'none';
     }
 
     // The dragon glyph has no separate per-direction art, so facing is faked from the one
@@ -1619,12 +1629,32 @@ import { createMySkins } from './js/myskins.js';
     const scr = worldToScreen(b.x, b.y, Math.sin(b.bob)*4);
     ctx.save();
     if (b.golden){
+      const pulse = 1 + Math.sin(glowClock*3)*0.15;
+      // radial halo behind it -- a shadowBlur alone barely shows up against an already
+      // colorful emoji, so give it an actual glowing disc plus a color-shifted glyph
+      const haloR = 36*pulse;
+      const halo = ctx.createRadialGradient(scr.sx, scr.sy, 0, scr.sx, scr.sy, haloR);
+      halo.addColorStop(0, 'rgba(255,226,122,0.55)');
+      halo.addColorStop(1, 'rgba(255,226,122,0)');
+      ctx.fillStyle = halo;
+      ctx.beginPath();
+      ctx.arc(scr.sx, scr.sy, haloR, 0, Math.PI*2);
+      ctx.fill();
+      // sparkles orbiting the halo
+      ctx.font = '13px serif';
+      ctx.textAlign='center'; ctx.textBaseline='middle';
+      for (let i=0;i<3;i++){
+        const ang = glowClock*2 + i*(Math.PI*2/3);
+        ctx.fillText('✨', scr.sx + Math.cos(ang)*26, scr.sy + Math.sin(ang)*26);
+      }
       ctx.shadowColor = '#ffe27a';
-      ctx.shadowBlur = 14 + Math.sin(b.bob*2)*4;
+      ctx.shadowBlur = 16 + Math.sin(glowClock*3)*6;
+      ctx.filter = 'sepia(1) saturate(6) hue-rotate(-10deg) brightness(1.15)';
     }
-    ctx.font = (b.golden ? 36 : 30) + 'px serif';
+    ctx.font = (b.golden ? 40 : 30) + 'px serif';
     ctx.textAlign='center'; ctx.textBaseline='middle';
     ctx.fillText('🍔', scr.sx, scr.sy);
+    ctx.filter = 'none';
     ctx.restore();
   }
 
@@ -1655,14 +1685,23 @@ import { createMySkins } from './js/myskins.js';
     const scr = worldToScreen(b.x, b.y);
     ctx.save();
     if (b.golden){
+      const halo = ctx.createRadialGradient(scr.sx, scr.sy, 0, scr.sx, scr.sy, 24);
+      halo.addColorStop(0, 'rgba(255,226,122,0.5)');
+      halo.addColorStop(1, 'rgba(255,226,122,0)');
+      ctx.fillStyle = halo;
+      ctx.beginPath();
+      ctx.arc(scr.sx, scr.sy, 24, 0, Math.PI*2);
+      ctx.fill();
       ctx.shadowColor = '#ffe27a';
-      ctx.shadowBlur = 12;
+      ctx.shadowBlur = 14;
+      ctx.filter = 'sepia(1) saturate(6) hue-rotate(-10deg) brightness(1.15)';
     }
     ctx.translate(scr.sx, scr.sy);
     ctx.rotate(b.rot);
-    ctx.font = '28px serif';
+    ctx.font = (b.golden ? 32 : 28) + 'px serif';
     ctx.textAlign='center'; ctx.textBaseline='middle';
     ctx.fillText('🍔', 0, 0);
+    ctx.filter = 'none';
     ctx.restore();
   }
 
