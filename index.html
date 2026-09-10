@@ -38,7 +38,9 @@
     letter-spacing:0.5px;
   }
   #hudLeft { display:flex; flex-direction:column; align-items:flex-start; gap:6px; }
+  #level { font-size:14px; color:#ffd23f; letter-spacing:1px; }
   #score { font-size:26px; }
+  #windIndicator { font-size:14px; color:#dff3ff; }
   #exitBtn {
     pointer-events:auto;
     font-family: Arial Black, Arial, sans-serif;
@@ -152,7 +154,9 @@
   <canvas id="game"></canvas>
   <div id="hud">
     <div id="hudLeft">
+      <div id="level">LEVEL 1</div>
       <div id="score">SCORE: 0</div>
+      <div id="windIndicator" class="hidden">💨 WIND</div>
       <button id="exitBtn" title="Exit to title">✕ EXIT</button>
     </div>
     <div id="coins">🪙 0</div>
@@ -168,6 +172,9 @@
     <p>Grab cheeseburgers and stuff them in the pig's mouth. Feed him enough and he'll leap straight at you — watch the landing shadow and <b>DODGE</b> before he comes down and blows! When he explodes, coins scatter everywhere. Grab them for points!</p>
     <p>🎮 Use the joystick (bottom-left) or arrow keys / WASD to move the dragon.</p>
     <p>🍔 Spend 4 coins to throw your burger at the pig from range — press E or tap THROW!</p>
+    <p>📈 Survive 15 escalating <b>LEVELS</b> to clear the farm. Watch for golden burgers (double
+      feed value) from level 3, and wind gusts that shove the dragon around from level 5 —
+      the pig gets faster and meaner every level after that.</p>
     <button id="startBtn">START</button>
     <div style="display:flex; gap:10px; margin-top:10px; flex-wrap:wrap; justify-content:center;">
       <button id="viewLeaderboardBtn" style="padding:10px 22px; font-size:14px; font-weight:900; background:transparent; color:#ffd23f; border:2px solid #ffd23f; border-radius:50px; cursor:pointer; font-family: Arial Black, Arial, sans-serif;">🏆 LEADERBOARD</button>
@@ -216,6 +223,18 @@
     </div>
 
     <button id="restartBtn">PLAY AGAIN</button>
+  </div>
+
+  <div id="victoryScreen" class="hidden" style="position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; background:rgba(10,15,30,0.92); color:#fff; padding:24px; overflow-y:auto; -webkit-overflow-scrolling:touch; touch-action:pan-y;">
+    <div style="font-size:44px;">🎉🐷🎉</div>
+    <h1 style="font-size:32px; color:#ffd23f; text-shadow:3px 3px 0 #c0392b; line-height:1.2;">FARM CLEARED!</h1>
+    <p style="font-size:16px; margin:8px 0; max-width:360px; color:#e8eef5;">You survived all 15 levels. The pig has no more surprises left — but you can keep
+      feeding him for score, or call it here and lock in your run.</p>
+    <p id="victoryScoreText" style="font-size:20px; margin:10px 0 0 0; color:#ffd23f; font-weight:900;">Score: 0</p>
+    <div style="display:flex; gap:10px; margin-top:16px; flex-wrap:wrap; justify-content:center;">
+      <button id="victoryContinueBtn" style="padding:14px 28px; font-size:16px; font-weight:900; background:#ffd23f; color:#7a2e00; border:none; border-radius:50px; cursor:pointer; box-shadow:0 6px 0 #c98e00; font-family: Arial Black, Arial, sans-serif;">KEEP PLAYING</button>
+      <button id="victoryStopBtn" style="padding:14px 28px; font-size:16px; font-weight:900; background:#2ecc71; color:#08331b; border:none; border-radius:50px; cursor:pointer; box-shadow:0 6px 0 #1e8f4e; font-family: Arial Black, Arial, sans-serif;">FINISH &amp; SUBMIT</button>
+    </div>
   </div>
 
   <div id="leaderboardPreview" class="hidden" style="position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; background:rgba(10,15,30,0.92); color:#fff; padding:24px; overflow-y:auto; -webkit-overflow-scrolling:touch; touch-action:pan-y;">
@@ -276,13 +295,19 @@ import { createMySkins } from './js/myskins.js';
   canvas.height = CANVAS_H;
 
   const hudEl = document.getElementById('hud');
+  const levelEl = document.getElementById('level');
   const scoreEl = document.getElementById('score');
   const coinsEl = document.getElementById('coins');
   const timerEl = document.getElementById('timer');
   const livesEl = document.getElementById('lives');
+  const windIndicatorEl = document.getElementById('windIndicator');
   const warningEl = document.getElementById('warning');
   const overlay = document.getElementById('overlay');
   const gameOverEl = document.getElementById('gameOver');
+  const victoryScreen = document.getElementById('victoryScreen');
+  const victoryScoreText = document.getElementById('victoryScoreText');
+  const victoryContinueBtn = document.getElementById('victoryContinueBtn');
+  const victoryStopBtn = document.getElementById('victoryStopBtn');
   const finalScoreEl = document.getElementById('finalScore');
   const scoreSubmitBox = document.getElementById('scoreSubmitBox');
   const scoreNameInput = document.getElementById('scoreNameInput');
@@ -421,7 +446,10 @@ import { createMySkins } from './js/myskins.js';
   let pigState = 'idle'; // idle, jumping, exploding, cooldown
   let cooldownTimer = 0;
   let jumpTimer = 0;
-  const JUMP_DURATION = 75; // ~1.25s at 60fps, dragon's window to escape the landing zone
+  const JUMP_DURATION_BASE = 75; // ~1.25s at 60fps, dragon's window to escape the landing zone
+  const JUMP_DURATION_FLOOR = 45; // never faster than ~0.75s, so it stays dodgeable
+  const JUMP_DURATION_SHRINK_PER_LEVEL = 3;
+  let jumpDuration = JUMP_DURATION_BASE; // set per-jump in feedPigSuccess, scales down past FAST_PIG_LEVEL
   let shockRadius = 0;
   let shockActive = false;
   let invuln = 0;
@@ -436,6 +464,29 @@ import { createMySkins } from './js/myskins.js';
   let startTime = 0;
   let elapsedMs = 0;
   let roundsSurvived = 0;
+
+  // ---------- levels ----------
+  // "Level" is just roundsSurvived+1 dressed up with a name and a banner -- the difficulty
+  // knobs below (shock radius/speed, coin life, burgersToFull) already scale continuously
+  // off roundsSurvived, so leveling doesn't need its own progression curve, only presentation
+  // and a handful of gated gimmicks so the climb isn't pure numbers-go-up.
+  let level = 1;
+  const LEVEL_WIN = 15; // clear this many explosions to see the victory screen
+  let wonGame = false;
+  const GOLDEN_BURGER_LEVEL = 3;   // golden burgers start appearing
+  const WIND_GUST_LEVEL = 5;       // wind gusts start
+  const GUST_STRENGTH = 1.8;       // px/frame at 60fps -- noticeable against the dragon's 4.2 move speed, not overpowering
+  const FAST_PIG_LEVEL = 8;        // jump window starts shrinking past this level
+  let carryingGolden = false;
+  let gustTimer = 0;       // frames until the next gust can start
+  let gustActive = 0;      // frames remaining in the current gust, 0 = none
+  let gustVx = 0, gustVy = 0;
+  let gustArrow = '';
+  let gustScreenAngle = 0; // gust direction converted to screen space, for the on-canvas arrow/streaks
+  let windStreaks = []; // drifting speed-line particles, purely visual, spawned while a gust is active
+  let windLeaves = []; // tumbling leaf debris blown across the ground, purely visual
+  let windSwooshes = []; // large curved "gust slash" shapes sweeping across the screen, purely visual
+  let dragonTrail = []; // recent dragon world-positions while gusting -- draws as a motion smear pointing upwind
 
   const SHOCK_RADIUS_BASE = 170;
   const SHOCK_RADIUS_GROWTH_PER_ROUND = 10;
@@ -781,6 +832,23 @@ import { createMySkins } from './js/myskins.js';
   function rand(a,b){ return a + Math.random()*(b-a); }
   function dist(x1,y1,x2,y2){ return Math.hypot(x1-x2, y1-y2); }
 
+  // Half-extent of the CANVAS_W x CANVAS_H rectangle (centered on itself) as measured
+  // along a given direction -- i.e. how far from center you have to go along that
+  // direction before leaving the rectangle. Used to size wind-effect spawn boxes so a
+  // gust's perpendicular spread never overshoots the actual canvas width/height in that
+  // direction (a fixed max(CANVAS_W,CANVAS_H) radius was too generous for near-axis-aligned
+  // gusts and let streaks/leaves/swooshes spawn and travel entirely off-screen).
+  function rectHalfExtentAlong(ux, uy){
+    return Math.abs(ux)*CANVAS_W/2 + Math.abs(uy)*CANVAS_H/2;
+  }
+
+  // World-space angle -> nearest compass-arrow glyph, purely for the wind gust HUD hint.
+  const COMPASS_ARROWS = ['➡️','↘️','⬇️','↙️','⬅️','↖️','⬆️','↗️'];
+  function angleToArrow(a){
+    const norm = ((a % (Math.PI*2)) + Math.PI*2) % (Math.PI*2);
+    return COMPASS_ARROWS[Math.round(norm/(Math.PI/4)) % 8];
+  }
+
   function resetGame(){
     score = 0; coins = 0; lives = 3; feedProgress = 0; burgersToFull = 5;
     pigState = 'idle'; jumpTimer = 0; cooldownTimer = 0;
@@ -792,6 +860,18 @@ import { createMySkins } from './js/myskins.js';
     carrying = false; invuln = 0;
     elapsedMs = 0;
     roundsSurvived = 0;
+    level = 1;
+    wonGame = false;
+    carryingGolden = false;
+    gustTimer = rand(300,480);
+    gustActive = 0;
+    gustVx = 0; gustVy = 0;
+    windStreaks = [];
+    windLeaves = [];
+    windSwooshes = [];
+    dragonTrail = [];
+    windIndicatorEl.classList.add('hidden');
+    jumpDuration = JUMP_DURATION_BASE;
     shockMaxRadius = SHOCK_RADIUS_BASE;
     shockSpeed = SHOCK_SPEED_BASE;
     coinLifeFrames = COIN_LIFE_FRAMES;
@@ -812,10 +892,15 @@ import { createMySkins } from './js/myskins.js';
       y = rand(H*0.46, H-60);
       tries++;
     } while (dist(x,y,pig.x,pig.y) < 110 && tries < 20);
-    groundBurgers.push({x,y,bob:Math.random()*Math.PI*2});
+    // Golden burgers are worth double feed progress and score -- gated behind
+    // GOLDEN_BURGER_LEVEL so the first couple levels stay simple, and capped at one
+    // on the field at a time so they stay a nice find rather than the new normal.
+    const golden = level >= GOLDEN_BURGER_LEVEL && !groundBurgers.some(b => b.golden) && Math.random() < 0.25;
+    groundBurgers.push({x,y,bob:Math.random()*Math.PI*2, golden});
   }
 
   function updateHud(){
+    levelEl.textContent = 'LEVEL ' + level;
     scoreEl.textContent = 'SCORE: ' + score;
     coinsEl.textContent = '🪙 ' + coins;
     timerEl.textContent = formatTime(elapsedMs);
@@ -833,6 +918,55 @@ import { createMySkins } from './js/myskins.js';
     }
   }
 
+  // Spawns one speed-line particle at the upwind edge of the canvas, drifting across in
+  // gustScreenAngle so it reads as "the air moving that way" rather than just a HUD label.
+  function spawnWindStreak(){
+    const dirX = Math.cos(gustScreenAngle), dirY = Math.sin(gustScreenAngle);
+    const perpX = -dirY, perpY = dirX;
+    const cx = CANVAS_W/2, cy = CANVAS_H/2;
+    const backDist = rectHalfExtentAlong(dirX,dirY) + 40;
+    const perpOffset = rand(-rectHalfExtentAlong(perpX,perpY), rectHalfExtentAlong(perpX,perpY));
+    windStreaks.push({
+      x: cx - dirX*backDist + perpX*perpOffset,
+      y: cy - dirY*backDist + perpY*perpOffset,
+      len: rand(22,42), speed: rand(9,15), life: 1, alpha: rand(0.35,0.65)
+    });
+  }
+
+  // Leaf debris tumbling across the ground in the gust direction -- reads as "wind" far
+  // more unmistakably than an abstract line or arrow does.
+  function spawnWindLeaf(){
+    const dirX = Math.cos(gustScreenAngle), dirY = Math.sin(gustScreenAngle);
+    const perpX = -dirY, perpY = dirX;
+    const cx = CANVAS_W/2, cy = CANVAS_H/2;
+    const backDist = rectHalfExtentAlong(dirX,dirY) + 40;
+    const perpOffset = rand(-rectHalfExtentAlong(perpX,perpY), rectHalfExtentAlong(perpX,perpY));
+    windLeaves.push({
+      x: cx - dirX*backDist + perpX*perpOffset,
+      y: cy - dirY*backDist + perpY*perpOffset,
+      speed: rand(6,10), rot: rand(0,Math.PI*2), spin: rand(-0.2,0.2),
+      size: rand(14,20), life: 1
+    });
+  }
+
+  // Large curved "gust slash" shapes -- the classic wind-in-motion look (a bent stroke,
+  // not a straight line) -- sweeping across the whole screen. This is the primary "wind is
+  // physically moving through here" cue; streaks/leaves/the dragon smear reinforce it.
+  function spawnWindSwoosh(){
+    const dirX = Math.cos(gustScreenAngle), dirY = Math.sin(gustScreenAngle);
+    const perpX = -dirY, perpY = dirX;
+    const cx = CANVAS_W/2, cy = CANVAS_H/2;
+    const backDist = rectHalfExtentAlong(dirX,dirY) + 40;
+    const perpOffset = rand(-rectHalfExtentAlong(perpX,perpY), rectHalfExtentAlong(perpX,perpY));
+    windSwooshes.push({
+      x: cx - dirX*backDist + perpX*perpOffset,
+      y: cy - dirY*backDist + perpY*perpOffset,
+      len: rand(150,240), speed: rand(13,19),
+      curve: rand(20,38) * (Math.random() < 0.5 ? 1 : -1),
+      life: 1, alpha: rand(0.5,0.75)
+    });
+  }
+
   function updateThrowBtn(){
     const ready = running && carrying && pigState === 'idle' && coins >= BURGER_THROW_COST;
     if (ready) throwBtn.classList.remove('hidden');
@@ -841,6 +975,8 @@ import { createMySkins } from './js/myskins.js';
   function throwBurger(){
     if (!running || !carrying || pigState !== 'idle' || coins < BURGER_THROW_COST) return;
     carrying = false;
+    const golden = carryingGolden;
+    carryingGolden = false;
     coins -= BURGER_THROW_COST;
     updateHud();
     updateThrowBtn();
@@ -848,7 +984,7 @@ import { createMySkins } from './js/myskins.js';
     const speed = 11;
     burgerProjectiles.push({
       x: dragon.x, y: dragon.y, vx: Math.cos(angle)*speed, vy: Math.sin(angle)*speed,
-      rot: 0, life: 90
+      rot: 0, life: 90, golden
     });
     sfxThrow();
   }
@@ -889,20 +1025,24 @@ import { createMySkins } from './js/myskins.js';
   }
 
   // Shared by the walk-in feed and the thrown-burger hit — both count as "successfully
-  // fed the pig one burger" and should have identical effects.
-  function feedPigSuccess(){
-    feedProgress++;
+  // fed the pig one burger" and should have identical effects. `golden` doubles the
+  // feed progress and score, for the rare golden-burger pickup (see GOLDEN_BURGER_LEVEL).
+  function feedPigSuccess(golden){
+    feedProgress += golden ? 2 : 1;
     pig.feedPunch = 1;
-    score += 10;
+    score += golden ? 30 : 10;
     updateHud();
     spawnBurst(pig.x, pig.y - 10, '#ffd23f', 10);
+    if (golden) spawnBurst(pig.x, pig.y - 10, '#fff8d6', 14);
     sfxFeed();
     if (feedProgress >= burgersToFull){
       pigState = 'jumping';
-      jumpTimer = JUMP_DURATION;
+      jumpDuration = Math.max(JUMP_DURATION_BASE - Math.max(level-FAST_PIG_LEVEL,0)*JUMP_DURATION_SHRINK_PER_LEVEL, JUMP_DURATION_FLOOR);
+      jumpTimer = jumpDuration;
       pig.jumpStartX = pig.x; pig.jumpStartY = pig.y;
       pig.targetX = Math.max(50, Math.min(W-50, dragon.x));
       pig.targetY = Math.max(H*0.3, Math.min(H-70, dragon.y));
+      bonusMsgTimer = 0; // cancel any pending level-up/bonus banner -- the jump warning takes priority
       warningEl.textContent = "PIG'S GONNA BLOW!";
       warningEl.style.display = 'block';
       sfxJump();
@@ -930,12 +1070,38 @@ import { createMySkins } from './js/myskins.js';
     running = false;
     joystick.classList.add('hidden');
     throwBtn.classList.add('hidden');
+    windIndicatorEl.classList.add('hidden');
     sfxGameOver();
     finalScoreEl.textContent = 'Score: ' + score + '  •  Time: ' + formatTime(elapsedMs);
     gameOverEl.classList.remove('hidden');
 
     leaderboard.onGameOver(score);
   }
+
+  // Reached after LEVEL_WIN explosions survived. Pauses the run (rather than ending it)
+  // so a player who wants to keep chasing score for the leaderboard can resume seamlessly,
+  // while a player who's satisfied can finish and submit from here.
+  function showVictoryScreen(){
+    running = false;
+    joystick.classList.add('hidden');
+    throwBtn.classList.add('hidden');
+    windIndicatorEl.classList.add('hidden');
+    sfxBonus();
+    victoryScoreText.textContent = 'Score: ' + score + '  •  Time: ' + formatTime(elapsedMs);
+    victoryScreen.classList.remove('hidden');
+  }
+  function resumeAfterVictory(){
+    victoryScreen.classList.add('hidden');
+    joystick.classList.remove('hidden');
+    running = true;
+    lastTime = performance.now();
+    requestAnimationFrame(loop);
+  }
+  victoryContinueBtn.addEventListener('click', resumeAfterVictory);
+  victoryStopBtn.addEventListener('click', () => {
+    victoryScreen.classList.add('hidden');
+    endGame();
+  });
 
   function update(frameScale){
     // --- movement ---
@@ -985,6 +1151,41 @@ import { createMySkins } from './js/myskins.js';
     dragon.vy += (my*speed - dragon.vy) * accelThisFrame;
     dragon.x += dragon.vx * frameScale;
     dragon.y += dragon.vy * frameScale;
+    // --- wind gusts (from WIND_GUST_LEVEL): a periodic shove on top of player input,
+    // strong enough to fight the joystick but not so strong it overrides it outright.
+    // Held off during the jump/explosion beat so the dodge stays purely about the pig.
+    if (level >= WIND_GUST_LEVEL){
+      if (gustActive > 0){
+        gustActive -= frameScale;
+        dragon.x += gustVx*frameScale;
+        dragon.y += gustVy*frameScale;
+        windIndicatorEl.classList.remove('hidden');
+        windIndicatorEl.textContent = '💨 WIND ' + gustArrow;
+        if (Math.random() < 1.4*frameScale) spawnWindStreak();
+        if (Math.random() < 0.35*frameScale) spawnWindLeaf();
+        if (Math.random() < 0.5*frameScale) spawnWindSwoosh();
+        dragonTrail.push({x:dragon.x, y:dragon.y});
+        if (dragonTrail.length > 12) dragonTrail.shift();
+        if (gustActive <= 0){
+          windIndicatorEl.classList.add('hidden');
+          gustTimer = rand(360,600);
+        }
+      } else if (pigState === 'idle' || pigState === 'cooldown'){
+        gustTimer -= frameScale;
+        if (gustTimer <= 0){
+          const a = rand(0, Math.PI*2);
+          gustActive = rand(90,150);
+          gustVx = Math.cos(a)*GUST_STRENGTH; gustVy = Math.sin(a)*GUST_STRENGTH;
+          gustArrow = angleToArrow(a);
+          // Iso projection is a fixed linear transform, so a direction converts to screen
+          // space the same way regardless of where it's measured from -- (0,0) is as good
+          // an anchor as the dragon's position for finding the on-screen push angle.
+          const d0 = worldToScreen(0,0), d1 = worldToScreen(Math.cos(a)*10, Math.sin(a)*10);
+          gustScreenAngle = Math.atan2(d1.sy-d0.sy, d1.sx-d0.sx);
+        }
+      }
+    }
+    if (gustActive <= 0 && dragonTrail.length) dragonTrail.shift(); // drain the smear out once the gust ends
     dragon.x = Math.max(dragon.size*0.5, Math.min(W-dragon.size*0.5, dragon.x));
     dragon.y = Math.max(dragon.size*0.5, Math.min(H-dragon.size*0.5, dragon.y));
 
@@ -997,6 +1198,7 @@ import { createMySkins } from './js/myskins.js';
         if (withinScreenRange(dragon.x,dragon.y,b.x,b.y, dragon.size*0.55 + 14)){
           groundBurgers.splice(i,1);
           carrying = true;
+          carryingGolden = !!b.golden;
           break;
         }
       }
@@ -1006,7 +1208,9 @@ import { createMySkins } from './js/myskins.js';
     if (carrying && pigState === 'idle'){
       if (withinScreenRange(dragon.x,dragon.y,pig.x,pig.y, dragon.size*0.5 + pig.baseSize*0.6*pigVisualScale())){
         carrying = false;
-        feedPigSuccess();
+        const golden = carryingGolden;
+        carryingGolden = false;
+        feedPigSuccess(golden);
       }
     }
 
@@ -1016,7 +1220,7 @@ import { createMySkins } from './js/myskins.js';
       b.x += b.vx*frameScale; b.y += b.vy*frameScale; b.rot += 0.3*frameScale; b.life -= frameScale;
       if (pigState === 'idle' && withinScreenRange(b.x,b.y,pig.x,pig.y, pig.baseSize*0.6*pigVisualScale())){
         burgerProjectiles.splice(i,1);
-        feedPigSuccess();
+        feedPigSuccess(b.golden);
         continue;
       }
       if (b.life <= 0) burgerProjectiles.splice(i,1);
@@ -1031,7 +1235,7 @@ import { createMySkins } from './js/myskins.js';
     shakeTimer = Math.max(shakeTimer - frameScale, 0);
     if (pigState === 'jumping'){
       jumpTimer -= frameScale;
-      const t = 1 - Math.max(jumpTimer,0) / JUMP_DURATION;
+      const t = 1 - Math.max(jumpTimer,0) / jumpDuration;
       pig.x = pig.jumpStartX + (pig.targetX - pig.jumpStartX) * t;
       pig.y = pig.jumpStartY + (pig.targetY - pig.jumpStartY) * t;
       pig.airHeight = Math.sin(t * Math.PI) * JUMP_ARC_HEIGHT;
@@ -1049,6 +1253,18 @@ import { createMySkins } from './js/myskins.js';
         shockActive = false;
         feedProgress = 0;
         burgersToFull = Math.max(3, 5 - Math.floor(score/200));
+
+        level = roundsSurvived + 1;
+        updateHud();
+        if (!wonGame && roundsSurvived >= LEVEL_WIN){
+          wonGame = true;
+          showVictoryScreen();
+        } else {
+          bonusMsgTimer = 70;
+          warningEl.textContent = 'LEVEL ' + level + '!';
+          warningEl.style.display = 'block';
+          sfxBonus();
+        }
       }
     } else if (pigState === 'cooldown'){
       cooldownTimer -= frameScale;
@@ -1131,6 +1347,38 @@ import { createMySkins } from './js/myskins.js';
       if (p.life <= 0) particles.splice(i,1);
     }
 
+    // --- wind streaks (purely visual, see spawnWindStreak) ---
+    for (let i=windStreaks.length-1;i>=0;i--){
+      const s = windStreaks[i];
+      s.x += Math.cos(gustScreenAngle)*s.speed*frameScale;
+      s.y += Math.sin(gustScreenAngle)*s.speed*frameScale;
+      s.life -= 0.012*frameScale;
+      if (s.life <= 0 || s.x < -60 || s.x > CANVAS_W+60 || s.y < -60 || s.y > CANVAS_H+60){
+        windStreaks.splice(i,1);
+      }
+    }
+    // --- wind swooshes (purely visual, see spawnWindSwoosh) ---
+    for (let i=windSwooshes.length-1;i>=0;i--){
+      const s = windSwooshes[i];
+      s.x += Math.cos(gustScreenAngle)*s.speed*frameScale;
+      s.y += Math.sin(gustScreenAngle)*s.speed*frameScale;
+      s.life -= 0.009*frameScale;
+      if (s.life <= 0 || s.x < -120 || s.x > CANVAS_W+120 || s.y < -120 || s.y > CANVAS_H+120){
+        windSwooshes.splice(i,1);
+      }
+    }
+    // --- wind leaves (purely visual, see spawnWindLeaf) ---
+    for (let i=windLeaves.length-1;i>=0;i--){
+      const lf = windLeaves[i];
+      lf.x += Math.cos(gustScreenAngle)*lf.speed*frameScale;
+      lf.y += Math.sin(gustScreenAngle)*lf.speed*frameScale;
+      lf.rot += lf.spin*frameScale;
+      lf.life -= 0.01*frameScale;
+      if (lf.life <= 0 || lf.x < -60 || lf.x > CANVAS_W+60 || lf.y < -60 || lf.y > CANVAS_H+60){
+        windLeaves.splice(i,1);
+      }
+    }
+
     // --- spawn new ground burgers ---
     spawnTimer -= frameScale;
     if (spawnTimer <= 0 && groundBurgers.length < 4 && pigState !== 'exploding'){
@@ -1197,7 +1445,7 @@ import { createMySkins } from './js/myskins.js';
   }
 
   function drawLandingShadow(){
-    const t = 1 - Math.max(jumpTimer,0) / JUMP_DURATION; // 0 at takeoff, 1 at landing
+    const t = 1 - Math.max(jumpTimer,0) / jumpDuration; // 0 at takeoff, 1 at landing
     const startR = pig.baseSize*2.2;
     const endR = pig.baseSize*0.85;
     const r = startR + (endR-startR)*t;
@@ -1319,10 +1567,25 @@ import { createMySkins } from './js/myskins.js';
 
     if (carrying){
       const bob = Math.sin(dragon.carryBob)*3;
-      ctx.font = '26px serif';
+      const by = -dragon.size*0.6 + bob;
+      if (carryingGolden){
+        const halo = ctx.createRadialGradient(0, by, 0, 0, by, 22);
+        halo.addColorStop(0, 'rgba(255,226,122,0.55)');
+        halo.addColorStop(1, 'rgba(255,226,122,0)');
+        ctx.fillStyle = halo;
+        ctx.beginPath();
+        ctx.arc(0, by, 22, 0, Math.PI*2);
+        ctx.fill();
+        ctx.shadowColor = '#ffe27a';
+        ctx.shadowBlur = 14;
+        ctx.filter = 'sepia(1) saturate(6) hue-rotate(-10deg) brightness(1.15)';
+      }
+      ctx.font = (carryingGolden ? 30 : 26) + 'px serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText('🍔', 0, -dragon.size*0.6 + bob);
+      ctx.fillText('🍔', 0, by);
+      ctx.shadowBlur = 0;
+      ctx.filter = 'none';
     }
 
     // The dragon glyph has no separate per-direction art, so facing is faked from the one
@@ -1365,9 +1628,33 @@ import { createMySkins } from './js/myskins.js';
     b.bob += 0.06;
     const scr = worldToScreen(b.x, b.y, Math.sin(b.bob)*4);
     ctx.save();
-    ctx.font = '30px serif';
+    if (b.golden){
+      const pulse = 1 + Math.sin(glowClock*3)*0.15;
+      // radial halo behind it -- a shadowBlur alone barely shows up against an already
+      // colorful emoji, so give it an actual glowing disc plus a color-shifted glyph
+      const haloR = 36*pulse;
+      const halo = ctx.createRadialGradient(scr.sx, scr.sy, 0, scr.sx, scr.sy, haloR);
+      halo.addColorStop(0, 'rgba(255,226,122,0.55)');
+      halo.addColorStop(1, 'rgba(255,226,122,0)');
+      ctx.fillStyle = halo;
+      ctx.beginPath();
+      ctx.arc(scr.sx, scr.sy, haloR, 0, Math.PI*2);
+      ctx.fill();
+      // sparkles orbiting the halo
+      ctx.font = '13px serif';
+      ctx.textAlign='center'; ctx.textBaseline='middle';
+      for (let i=0;i<3;i++){
+        const ang = glowClock*2 + i*(Math.PI*2/3);
+        ctx.fillText('✨', scr.sx + Math.cos(ang)*26, scr.sy + Math.sin(ang)*26);
+      }
+      ctx.shadowColor = '#ffe27a';
+      ctx.shadowBlur = 16 + Math.sin(glowClock*3)*6;
+      ctx.filter = 'sepia(1) saturate(6) hue-rotate(-10deg) brightness(1.15)';
+    }
+    ctx.font = (b.golden ? 40 : 30) + 'px serif';
     ctx.textAlign='center'; ctx.textBaseline='middle';
     ctx.fillText('🍔', scr.sx, scr.sy);
+    ctx.filter = 'none';
     ctx.restore();
   }
 
@@ -1397,11 +1684,128 @@ import { createMySkins } from './js/myskins.js';
   function drawSingleBurgerProjectile(b){
     const scr = worldToScreen(b.x, b.y);
     ctx.save();
+    if (b.golden){
+      const halo = ctx.createRadialGradient(scr.sx, scr.sy, 0, scr.sx, scr.sy, 24);
+      halo.addColorStop(0, 'rgba(255,226,122,0.5)');
+      halo.addColorStop(1, 'rgba(255,226,122,0)');
+      ctx.fillStyle = halo;
+      ctx.beginPath();
+      ctx.arc(scr.sx, scr.sy, 24, 0, Math.PI*2);
+      ctx.fill();
+      ctx.shadowColor = '#ffe27a';
+      ctx.shadowBlur = 14;
+      ctx.filter = 'sepia(1) saturate(6) hue-rotate(-10deg) brightness(1.15)';
+    }
     ctx.translate(scr.sx, scr.sy);
     ctx.rotate(b.rot);
-    ctx.font = '28px serif';
+    ctx.font = (b.golden ? 32 : 28) + 'px serif';
     ctx.textAlign='center'; ctx.textBaseline='middle';
     ctx.fillText('🍔', 0, 0);
+    ctx.filter = 'none';
+    ctx.restore();
+  }
+
+  function drawWindStreaks(){
+    if (!windStreaks.length) return;
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255,255,255,0.7)';
+    ctx.lineWidth = 2;
+    ctx.lineCap = 'round';
+    const dx = Math.cos(gustScreenAngle), dy = Math.sin(gustScreenAngle);
+    for (const s of windStreaks){
+      ctx.globalAlpha = s.alpha * Math.max(s.life,0);
+      ctx.beginPath();
+      ctx.moveTo(s.x, s.y);
+      ctx.lineTo(s.x - dx*s.len, s.y - dy*s.len);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  function drawWindSwooshes(){
+    if (!windSwooshes.length) return;
+    const dirX = Math.cos(gustScreenAngle), dirY = Math.sin(gustScreenAngle);
+    const perpX = -dirY, perpY = dirX;
+    ctx.save();
+    ctx.lineCap = 'round';
+    for (const s of windSwooshes){
+      const x0 = s.x, y0 = s.y;
+      const x1 = s.x - dirX*s.len, y1 = s.y - dirY*s.len;
+      const mx = (x0+x1)/2 + perpX*s.curve, my = (y0+y1)/2 + perpY*s.curve;
+      ctx.globalAlpha = s.alpha * Math.max(s.life,0);
+      ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.moveTo(x0,y0);
+      ctx.quadraticCurveTo(mx,my,x1,y1);
+      ctx.stroke();
+      // a thinner, dimmer echo just behind the main slash for a bit of thickness/depth
+      ctx.globalAlpha = s.alpha * 0.4 * Math.max(s.life,0);
+      ctx.lineWidth = 8;
+      ctx.strokeStyle = 'rgba(223,243,255,0.6)';
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  function drawWindLeaves(){
+    if (!windLeaves.length) return;
+    ctx.save();
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    for (const lf of windLeaves){
+      ctx.globalAlpha = Math.max(lf.life,0);
+      ctx.save();
+      ctx.translate(lf.x, lf.y);
+      ctx.rotate(lf.rot);
+      ctx.font = lf.size + 'px serif';
+      ctx.fillText('🍃', 0, 0);
+      ctx.restore();
+    }
+    ctx.restore();
+  }
+
+  // Faint copies of the dragon at its recent positions while gusting -- since those
+  // positions are upwind of the current one, the smear itself points the push direction,
+  // tied directly to real motion rather than a separate decorative effect.
+  function drawDragonTrail(){
+    if (!dragonTrail.length) return;
+    ctx.save();
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.font = dragon.size + 'px serif';
+    for (let i=0;i<dragonTrail.length;i++){
+      const p = dragonTrail[i];
+      const scr = worldToScreen(p.x, p.y);
+      ctx.globalAlpha = ((i+1)/dragonTrail.length) * 0.3;
+      ctx.save();
+      ctx.translate(scr.sx, scr.sy);
+      ctx.scale(-dragon.faceX, 1); // match the main dragon's mirror so the smear reads as the same glyph
+      ctx.fillText(dragonEmoji, 0, 0);
+      ctx.restore();
+    }
+    ctx.restore();
+  }
+
+  // A pulsing arrow parked just off the dragon, rotated to point the way the current gust
+  // is pushing -- the HUD's "💨 WIND ➡️" text alone was too easy to miss mid-dodge.
+  function drawWindArrow(){
+    if (gustActive <= 0) return;
+    const scr = worldToScreen(dragon.x, dragon.y);
+    const pulse = 1 + Math.sin(glowClock*4)*0.15;
+    const offset = dragon.size*0.95;
+    const ax = scr.sx + Math.cos(gustScreenAngle)*offset;
+    const ay = scr.sy + Math.sin(gustScreenAngle)*offset;
+    ctx.save();
+    ctx.translate(ax, ay);
+    ctx.rotate(gustScreenAngle);
+    ctx.scale(pulse, pulse);
+    ctx.fillStyle = 'rgba(223,243,255,0.9)';
+    ctx.strokeStyle = 'rgba(90,140,180,0.9)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(15,0); ctx.lineTo(-7,9); ctx.lineTo(-2,0); ctx.lineTo(-7,-9);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
     ctx.restore();
   }
 
@@ -1425,6 +1829,10 @@ import { createMySkins } from './js/myskins.js';
       ctx.translate((Math.random()*2-1)*SHAKE_MAG*power, (Math.random()*2-1)*SHAKE_MAG*power);
     }
     drawBackground();
+    drawWindLeaves();
+    drawWindStreaks();
+    drawWindSwooshes();
+    drawDragonTrail();
     drawShockwave();
     if (pigState === 'jumping') drawLandingShadow();
 
@@ -1437,6 +1845,7 @@ import { createMySkins } from './js/myskins.js';
     for (const b of burgerProjectiles) depthList.push({ depth: b.x + b.y, run: () => drawSingleBurgerProjectile(b) });
     depthList.sort((a,b) => a.depth - b.depth);
     for (const item of depthList) item.run();
+    drawWindArrow();
 
     drawParticles();
     ctx.restore();

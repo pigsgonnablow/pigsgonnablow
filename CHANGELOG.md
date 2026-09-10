@@ -2,6 +2,18 @@
 
 Running log of notable changes, kept during dev sessions for reference.
 
+## 2026-09-09
+
+- Added a level system (`feature/level-system` branch). Each pig explosion survived was
+  already tracked as `roundsSurvived` and drove continuous difficulty scaling (shock
+  radius/speed, coin lifespan, burgers-to-pop) -- that counter is now surfaced as a
+  "LEVEL n" HUD readout and a level-up banner, plus three gated gimmicks so the climb
+  isn't pure numbers-go-up: golden burgers (double feed progress + score, capped at one
+  on the field) from level 3, periodic wind gusts that shove the dragon around from level
+  5 (with a compass-arrow HUD hint), and a shrinking jump-dodge window past level 8. Level
+  15 triggers a victory screen with the choice to keep playing endlessly or finish and
+  submit the score.
+
 ## 2026-08-25
 
 - More small world-decoration passes, all purely cosmetic and playtested live in-browser:
