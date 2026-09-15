@@ -2,6 +2,20 @@
 
 Running log of notable changes, kept during dev sessions for reference.
 
+## 2026-09-15
+
+- Added trust-signal groundwork ahead of advertising the game (`feature/trust-signals`
+  branch): a `privacy.html` page (what's collected, why, third parties, contact) linked
+  from the title screen's account box; meta description, Open Graph, and Twitter Card tags
+  in `index.html` so shared links get a real title/description/preview image
+  (`social-preview.jpg`); and a `sw.js` cache version bump (v16 -> v17, plus adding
+  `privacy.html` to the precache list) since the level-system merge had changed
+  `index.html` without bumping the cache version -- anyone with the game installed as a
+  PWA was stuck on the pre-level-system build until this fix, since the service worker
+  file itself hadn't changed and a byte-identical `sw.js` never gets redetected as an
+  update. Contact address in the privacy policy (`support@pigsgonnablow.com`) is not yet
+  a live inbox -- needs DNS email forwarding set up before relying on it.
+
 ## 2026-09-09
 
 - Added a level system (`feature/level-system` branch). Each pig explosion survived was
