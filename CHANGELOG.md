@@ -2,6 +2,17 @@
 
 Running log of notable changes, kept during dev sessions for reference.
 
+## 2026-09-16
+
+- Fixed the LEADERBOARD/SHOP/MY SKINS button row looking visually unbalanced under the
+  START button on the title screen. It wasn't actually a centering bug -- pixel-measured
+  the reported screenshot and confirmed START and the row's bounding box share the exact
+  same horizontal center -- but the three buttons were very different widths
+  (LEADERBOARD ~189px vs SHOP ~115px vs MY SKINS ~150px), so the row's visual weight
+  leaned left even though its outer box was centered. Gave all three a shared fixed width
+  (190px) and `text-align:center` so the row is actually symmetric, not just centered.
+  Bumped `sw.js`'s cache version (v17 -> v18) since `index.html` changed again.
+
 ## 2026-09-15
 
 - Added trust-signal groundwork ahead of advertising the game (`feature/trust-signals`
