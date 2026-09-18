@@ -2,6 +2,16 @@
 
 Running log of notable changes, kept during dev sessions for reference.
 
+## 2026-09-18
+
+- Fixed the title/pause/game-over overlay (`#overlay`) letting the live gameplay HUD
+  (score, hearts, level) visibly bleed through behind its text. It was using a translucent
+  background (`rgba(10,15,30,0.88)`) instead of a solid one, so `#hud` -- which is never
+  actually hidden, just visually covered by the overlay -- showed through at ~12% opacity.
+  Found while testing the mobile layout at a 390px-wide viewport. Switched to a solid
+  `#0a0f1e` background. Bumped `sw.js`'s cache version (v18 -> v19) since `index.html`
+  changed again.
+
 ## 2026-09-16
 
 - Fixed the LEADERBOARD/SHOP/MY SKINS button row looking visually unbalanced under the
