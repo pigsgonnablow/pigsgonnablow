@@ -7,10 +7,6 @@
 //    personal best via the submit_personal_best RPC -- no typing, no duplicate rows, and
 //    a later lower score never overwrites a higher one (enforced server-side).
 //  - Anonymous: unchanged opt-in flow -- type a name, submit, one row per run.
-function escapeHtml(s){
-  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-}
-
 export function createLeaderboard({ url, anonKey, auth, elements }){
   const { submitBtn, nameInput, statusEl, listEl, submitBox } = elements;
 
@@ -61,20 +57,31 @@ export function createLeaderboard({ url, anonKey, auth, elements }){
       return;
     }
     const { session } = auth ? auth.getState() : { session: null };
-    targetEl.innerHTML = data
-      .map(row => {
-        const mine = session
-          ? row.user_id === session.user.id
-          : (justSubmittedName && row.name === justSubmittedName && row.score === lastFinalScore);
-        // color_filter (from our own catalog via scores, not user input) recolors skins like
-        // the red dragon that reuse the base glyph -- see supabase_skin_color_filter_schema.sql.
-        // Without it a colored skin would look identical to the default on the leaderboard.
-        const avatarStyle = row.color_filter ? ` style="filter:${row.color_filter}"` : '';
-        const avatar = row.avatar ? `<span${avatarStyle}>${escapeHtml(row.avatar)}</span> ` : '';
-        const text = `${avatar}${escapeHtml(row.name)} — ${row.score}`;
-        return mine ? `<li><strong>${text} (you!)</strong></li>` : `<li>${text}</li>`;
-      })
-      .join('');
+    targetEl.innerHTML = '';
+    for (const row of data){
+      const mine = session
+        ? row.user_id === session.user.id
+        : (justSubmittedName && row.name === justSubmittedName && row.score === lastFinalScore);
+
+      const li = document.createElement('li');
+      const inner = mine ? document.createElement('strong') : li;
+
+      if (row.avatar){
+        const avatarSpan = document.createElement('span');
+        // color_filter is a per-row value set via the client's own RLS-scoped update on their
+        // own row (see scores_own_update), not something this app's catalog fully controls --
+        // treat it as untrusted and set it as a real style property rather than ever
+        // interpolating it into an HTML string, same as shop.js/myskins.js already do.
+        if (row.color_filter) avatarSpan.style.filter = row.color_filter;
+        avatarSpan.textContent = row.avatar;
+        inner.appendChild(avatarSpan);
+        inner.appendChild(document.createTextNode(' '));
+      }
+      inner.appendChild(document.createTextNode(`${row.name} — ${row.score}${mine ? ' (you!)' : ''}`));
+
+      if (mine) li.appendChild(inner);
+      targetEl.appendChild(li);
+    }
   }
 
   function render(){ return renderInto(listEl); }

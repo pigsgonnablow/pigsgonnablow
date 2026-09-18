@@ -2,6 +2,34 @@
 
 Running log of notable changes, kept during dev sessions for reference.
 
+## 2026-09-18 (pre-1.0 review fixes)
+
+Found by an Opus-driven security/correctness pass ahead of calling this v1.0. Two real
+holes, plus two loose ends from the day's earlier fixes:
+
+- **Stored XSS on the leaderboard.** `js/leaderboard.js`'s `renderInto` interpolated a row's
+  `name`/`color_filter` straight into an HTML string; `shop.js`/`myskins.js` already avoided
+  this (set `.style.filter` as a real DOM property) but `leaderboard.js` never got the same
+  treatment. Since a signed-in player's own `color_filter` was directly writable (see next
+  item), this was a real stored-XSS vector against every leaderboard viewer. Rewrote
+  `renderInto` to build rows via `createElement`/`textContent` instead of an HTML string.
+- **Paid skins could be equipped for free, and scores forged, via a raw API call.**
+  `profiles_update_own`/the default `scores` insert/update grants let a signed-in client
+  write *any* column on their own row directly -- not just the ones the app's own RPCs
+  (`equip_skin`, `submit_personal_best`) intend to control. That meant `equipped_skin_id`/
+  `color_filter` could be set directly, skipping `equip_skin`'s ownership check entirely (no
+  purchase required), and `scores`/`color_filter` could be forged the same way `name`
+  already couldn't be. New file `supabase_lockdown_direct_writes.sql` (**needs to be run in
+  the Supabase SQL editor**) revokes the broad grants down to only the columns a direct
+  client write should ever touch, and marks both RPCs `security definer` so they keep
+  working (they already re-check ownership internally via `auth.uid()`).
+- The ember-trail commit changed `index.html` without bumping `sw.js`'s cache version --
+  bumped now (v20 -> v21) so returning/installed-PWA players actually get it.
+- The HUD-hiding pass from earlier today missed `#warning` (the "PIG'S GONNA BLOW!" / level-
+  up / bonus banner) -- it lives outside `#hud` so the hide-on-menu fix didn't cover it.
+  Could still ghost through the title/game-over overlay (e.g. hitting EXIT mid-banner). Now
+  hidden alongside the HUD in `endGame`, `showVictoryScreen`, and the exit handler.
+
 ## 2026-09-18 (later)
 
 - Gave the Dragon - Red skin ($1.99) an actual visual identity instead of just being the
