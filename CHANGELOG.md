@@ -2,6 +2,20 @@
 
 Running log of notable changes, kept during dev sessions for reference.
 
+## 2026-09-18 (correction)
+
+- Corrected the previous entry's fix for HUD text bleeding through the title/pause/
+  game-over overlay. Making `#overlay` fully opaque did stop the bleed-through, but it
+  also killed an intentional effect: the game's background scene (sky, grass, idle pig)
+  was meant to show faintly through the overlay too, not just get blocked along with the
+  HUD. Real bug was that `#hud` had no hidden state of its own -- it relied entirely on
+  the overlay's opacity to visually cover it, and was never actually removed from the
+  render. Reverted `#overlay` to its original translucent background and instead gave
+  `#hud` its own `hidden` class, toggled at every point the game already starts/stops
+  (`startBtn`, `restartBtn`, `resumeAfterVictory`, `endGame`, `showVictoryScreen`,
+  `exitBtn`) plus a default `hidden` in the markup for the initial title-screen load.
+  Bumped `sw.js`'s cache version (v19 -> v20) since `index.html` changed again.
+
 ## 2026-09-18
 
 - Fixed the title/pause/game-over overlay (`#overlay`) letting the live gameplay HUD

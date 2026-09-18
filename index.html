@@ -73,7 +73,7 @@
   #overlay {
     position:absolute; inset:0; display:flex; flex-direction:column;
     align-items:center; justify-content:flex-start; text-align:center;
-    background:#0a0f1e; color:#fff; padding:24px;
+    background:rgba(10,15,30,0.88); color:#fff; padding:24px;
     overflow-y:auto; -webkit-overflow-scrolling:touch; touch-action:pan-y;
   }
   #overlay::before, #overlay::after { content:''; flex:1 0 auto; min-height:0; }
@@ -162,7 +162,7 @@
 <body>
 <div id="wrap">
   <canvas id="game"></canvas>
-  <div id="hud">
+  <div id="hud" class="hidden">
     <div id="hudLeft">
       <div id="level">LEVEL 1</div>
       <div id="score">SCORE: 0</div>
@@ -1082,6 +1082,7 @@ import { createMySkins } from './js/myskins.js';
     joystick.classList.add('hidden');
     throwBtn.classList.add('hidden');
     windIndicatorEl.classList.add('hidden');
+    hudEl.classList.add('hidden');
     sfxGameOver();
     finalScoreEl.textContent = 'Score: ' + score + '  •  Time: ' + formatTime(elapsedMs);
     gameOverEl.classList.remove('hidden');
@@ -1097,6 +1098,7 @@ import { createMySkins } from './js/myskins.js';
     joystick.classList.add('hidden');
     throwBtn.classList.add('hidden');
     windIndicatorEl.classList.add('hidden');
+    hudEl.classList.add('hidden');
     sfxBonus();
     victoryScoreText.textContent = 'Score: ' + score + '  •  Time: ' + formatTime(elapsedMs);
     victoryScreen.classList.remove('hidden');
@@ -1104,6 +1106,7 @@ import { createMySkins } from './js/myskins.js';
   function resumeAfterVictory(){
     victoryScreen.classList.add('hidden');
     joystick.classList.remove('hidden');
+    hudEl.classList.remove('hidden');
     running = true;
     lastTime = performance.now();
     requestAnimationFrame(loop);
@@ -1893,6 +1896,7 @@ import { createMySkins } from './js/myskins.js';
     ensureAudio();
     overlay.classList.add('hidden');
     joystick.classList.remove('hidden');
+    hudEl.classList.remove('hidden');
     resetGame();
     running = true;
     lastTime = performance.now();
@@ -1903,6 +1907,7 @@ import { createMySkins } from './js/myskins.js';
     ensureAudio();
     gameOverEl.classList.add('hidden');
     joystick.classList.remove('hidden');
+    hudEl.classList.remove('hidden');
     resetGame();
     running = true;
     lastTime = performance.now();
@@ -1915,6 +1920,7 @@ import { createMySkins } from './js/myskins.js';
     joystick.classList.add('hidden');
     throwBtn.classList.add('hidden');
     gameOverEl.classList.add('hidden');
+    hudEl.classList.add('hidden');
     overlay.classList.remove('hidden');
   });
 
