@@ -2,6 +2,18 @@
 
 Running log of notable changes, kept during dev sessions for reference.
 
+## 2026-09-18 (later)
+
+- Gave the Dragon - Red skin ($1.99) an actual visual identity instead of just being the
+  base dragon glyph run through a CSS recolor filter with nothing else added. It now trails
+  small fire embers while moving (color-shifts from bright yellow-white to orange to
+  cooling red as each one fades, using the same world-space z-height mechanic the ground
+  burgers' bob already relies on so the embers visibly rise regardless of iso skew) plus a
+  faint pulsing ember-glow halo under the dragon at all times, gated on a new `dragonIsRed`
+  flag (`profile.equipped_skin_id === 'dragon-red'`) rather than string-matching the color
+  filter. (`sw.js`'s cache version bump for this change collapsed into the same v20 bump
+  as the HUD correction below, since both branches were merged together.)
+
 ## 2026-09-18 (correction)
 
 - Corrected the previous entry's fix for HUD text bleeding through the title/pause/

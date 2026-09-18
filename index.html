@@ -426,6 +426,10 @@ import { createMySkins } from './js/myskins.js';
   // applied over it, since the emoji has no separately paintable parts to reskin directly --
   // see supabase_skin_color_filter_schema.sql. 'none' when the equipped skin has no filter.
   let dragonFilter = 'none';
+  // Drives the Dragon - Red skin's ember trail (see spawnDragonEmber/drawDragonEmbers) --
+  // its own flag rather than sniffing dragonFilter's string, so it stays correct even if
+  // the filter recipe for that skin is retuned later.
+  let dragonIsRed = false;
 
   auth.onChange(({ session, profile }) => {
     accountSignedOut.classList.toggle('hidden', !!session);
@@ -442,6 +446,7 @@ import { createMySkins } from './js/myskins.js';
     // equipped (falls back to the free default when signed out or before a profile exists).
     dragonEmoji = (session && profile && profile.avatar) ? profile.avatar : '🐉';
     dragonFilter = (session && profile && profile.color_filter) ? profile.color_filter : 'none';
+    dragonIsRed = !!(session && profile && profile.equipped_skin_id === 'dragon-red');
   });
   const authReady = auth.init();
 
@@ -498,6 +503,7 @@ import { createMySkins } from './js/myskins.js';
   let windLeaves = []; // tumbling leaf debris blown across the ground, purely visual
   let windSwooshes = []; // large curved "gust slash" shapes sweeping across the screen, purely visual
   let dragonTrail = []; // recent dragon world-positions while gusting -- draws as a motion smear pointing upwind
+  let dragonEmbers = []; // ember particles drifting off the dragon, only while the Dragon - Red skin is equipped
 
   const SHOCK_RADIUS_BASE = 170;
   const SHOCK_RADIUS_GROWTH_PER_ROUND = 10;
@@ -881,6 +887,7 @@ import { createMySkins } from './js/myskins.js';
     windLeaves = [];
     windSwooshes = [];
     dragonTrail = [];
+    dragonEmbers = [];
     windIndicatorEl.classList.add('hidden');
     jumpDuration = JUMP_DURATION_BASE;
     shockMaxRadius = SHOCK_RADIUS_BASE;
@@ -941,6 +948,20 @@ import { createMySkins } from './js/myskins.js';
       x: cx - dirX*backDist + perpX*perpOffset,
       y: cy - dirY*backDist + perpY*perpOffset,
       len: rand(22,42), speed: rand(9,15), life: 1, alpha: rand(0.35,0.65)
+    });
+  }
+
+  // One ember trailing off the Dragon - Red skin. Uses world-space x/y plus a z height
+  // (the same z the ground burgers' bob and worldToScreen's z param already support) so it
+  // visibly rises regardless of which way the iso projection skews x/y -- a screen-space-only
+  // "up" wouldn't line up with the dragon consistently across facing/pitch.
+  function spawnDragonEmber(){
+    dragonEmbers.push({
+      x: dragon.x + rand(-6,6) - dragon.faceX*dragon.size*0.25, // biased behind the dragon's facing
+      y: dragon.y + rand(-6,6),
+      z: rand(0,4),
+      vx: rand(-0.15,0.15), vy: rand(-0.15,0.15), vz: rand(0.35,0.6),
+      life: 1, size: rand(2.5,5)
     });
   }
 
@@ -1203,6 +1224,12 @@ import { createMySkins } from './js/myskins.js';
     dragon.x = Math.max(dragon.size*0.5, Math.min(W-dragon.size*0.5, dragon.x));
     dragon.y = Math.max(dragon.size*0.5, Math.min(H-dragon.size*0.5, dragon.y));
 
+    // Dragon - Red skin: a trailing ember while actually moving -- see spawnDragonEmber.
+    // Gated on real speed (not just held input) so it doesn't fire while pinned at a wall.
+    if (dragonIsRed && Math.hypot(dragon.vx,dragon.vy) > 0.4 && Math.random() < 0.6*frameScale){
+      spawnDragonEmber();
+    }
+
     if (invuln > 0) invuln -= frameScale;
 
     // --- ground burger pickup ---
@@ -1393,6 +1420,15 @@ import { createMySkins } from './js/myskins.js';
       }
     }
 
+    // --- dragon embers (purely visual, see spawnDragonEmber) ---
+    for (let i=dragonEmbers.length-1;i>=0;i--){
+      const e = dragonEmbers[i];
+      e.x += e.vx*frameScale; e.y += e.vy*frameScale; e.z += e.vz*frameScale;
+      e.vz *= Math.pow(0.96, frameScale); // rise decelerates like smoke losing heat
+      e.life -= 0.025*frameScale;
+      if (e.life <= 0) dragonEmbers.splice(i,1);
+    }
+
     // --- spawn new ground burgers ---
     spawnTimer -= frameScale;
     if (spawnTimer <= 0 && groundBurgers.length < 4 && pigState !== 'exploding'){
@@ -1578,6 +1614,21 @@ import { createMySkins } from './js/myskins.js';
     const scr = worldToScreen(dragon.x, dragon.y);
     ctx.translate(scr.sx, scr.sy);
     if (invuln>0 && Math.floor(invuln/6)%2===0) ctx.globalAlpha = 0.35;
+
+    if (dragonIsRed){
+      // faint ember-colored glow under the body at all times, not just while moving --
+      // so the skin still reads as special while idle, with the ember trail (see
+      // spawnDragonEmber) reinforcing it whenever the dragon actually flies
+      const pulse = 1 + Math.sin(glowClock*2.4)*0.1;
+      const haloR = dragon.size*0.55*pulse;
+      const halo = ctx.createRadialGradient(0, 0, 0, 0, 0, haloR);
+      halo.addColorStop(0, 'rgba(255,90,30,0.35)');
+      halo.addColorStop(1, 'rgba(255,90,30,0)');
+      ctx.fillStyle = halo;
+      ctx.beginPath();
+      ctx.arc(0, 0, haloR, 0, Math.PI*2);
+      ctx.fill();
+    }
 
     if (carrying){
       const bob = Math.sin(dragon.carryBob)*3;
@@ -1778,6 +1829,27 @@ import { createMySkins } from './js/myskins.js';
     ctx.restore();
   }
 
+  // Ember trail for the Dragon - Red skin (see spawnDragonEmber). Color shifts from a
+  // bright yellow-white core down through orange to a cooling red as each ember fades,
+  // rather than a single flat tint, so the trail reads as fire rather than a solid dot.
+  function drawDragonEmbers(){
+    if (!dragonEmbers.length) return;
+    ctx.save();
+    for (const e of dragonEmbers){
+      const scr = worldToScreen(e.x, e.y, e.z);
+      const t = Math.max(e.life, 0);
+      const rgb = t > 0.66 ? '255,230,150' : t > 0.33 ? '255,140,40' : '200,50,20';
+      ctx.globalAlpha = t;
+      ctx.fillStyle = `rgb(${rgb})`;
+      ctx.shadowColor = `rgb(${rgb})`;
+      ctx.shadowBlur = 6;
+      ctx.beginPath();
+      ctx.arc(scr.sx, scr.sy, e.size*t, 0, Math.PI*2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
   // Faint copies of the dragon at its recent positions while gusting -- since those
   // positions are upwind of the current one, the smear itself points the push direction,
   // tied directly to real motion rather than a separate decorative effect.
@@ -1859,6 +1931,7 @@ import { createMySkins } from './js/myskins.js';
     for (const b of burgerProjectiles) depthList.push({ depth: b.x + b.y, run: () => drawSingleBurgerProjectile(b) });
     depthList.sort((a,b) => a.depth - b.depth);
     for (const item of depthList) item.run();
+    drawDragonEmbers();
     drawWindArrow();
 
     drawParticles();
