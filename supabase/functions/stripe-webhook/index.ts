@@ -12,8 +12,9 @@
 // needed here specifically to bypass RLS and insert into owned_skins on the buyer's behalf).
 //
 // Subscribed events (configure on the Stripe webhook endpoint): checkout.session.completed,
-// checkout.session.async_payment_succeeded. Both land here and are handled identically --
-// see the payment_status check below for why two event types are needed.
+// checkout.session.async_payment_succeeded (granting -- both land here and are handled
+// identically, see the payment_status check below for why two event types are needed),
+// charge.refunded, charge.dispute.created (revoking -- see the block near the bottom).
 import Stripe from "npm:stripe@17.5.0";
 import { createClient } from "npm:@supabase/supabase-js@2";
 
@@ -43,6 +44,19 @@ Deno.serve(async (req) => {
   } catch (e) {
     console.error("[stripe-webhook] signature verification failed:", e);
     return new Response("Invalid signature", { status: 400 });
+  }
+
+  // Belt-and-suspenders against a test-mode event ever granting a real entitlement: this
+  // function only ever holds one STRIPE_WEBHOOK_SECRET at a time, so in the current setup a
+  // sandbox event already fails signature verification above once the secret here is the
+  // live one (or vice versa) -- but that protection depends entirely on the two secrets
+  // never matching, which isn't something this function can see or enforce on its own.
+  // Checking event.livemode against which kind of secret is actually configured makes the
+  // guarantee explicit rather than incidental.
+  const isLiveKey = Deno.env.get("STRIPE_SECRET_KEY")!.startsWith("sk_live_");
+  if (event.livemode !== isLiveKey) {
+    console.error("[stripe-webhook] event.livemode mismatch with configured key -- refusing:", event.id, event.livemode);
+    return new Response("Mode mismatch", { status: 400 });
   }
 
   if (event.type === "checkout.session.completed" || event.type === "checkout.session.async_payment_succeeded") {
@@ -110,6 +124,57 @@ Deno.serve(async (req) => {
       console.error("[stripe-webhook] failed to grant skin:", error.message, { userId, skinId });
       return new Response("DB error", { status: 500 });
     }
+  }
+
+  // A refund or chargeback means the payment that granted a skin no longer holds -- without
+  // this, buy-then-refund keeps the skin forever, since nothing else ever revisits
+  // owned_skins. create-checkout never sets payment_intent_data.metadata, so user_id/skin_id
+  // don't live on the charge/dispute itself -- the checkout session that produced this
+  // payment_intent is the only place they're recorded, same as the grant path above.
+  if (event.type === "charge.refunded" || event.type === "charge.dispute.created") {
+    const obj = event.data.object as Stripe.Charge | Stripe.Dispute;
+    const paymentIntentId = typeof obj.payment_intent === "string" ? obj.payment_intent : obj.payment_intent?.id;
+    if (!paymentIntentId) {
+      console.error(`[stripe-webhook] ${event.type} has no payment_intent, can't revoke:`, event.id);
+      return new Response(JSON.stringify({ received: true }), { headers: { "Content-Type": "application/json" } });
+    }
+
+    const sessions = await stripe.checkout.sessions.list({ payment_intent: paymentIntentId, limit: 1 });
+    const session = sessions.data[0];
+    const userId = session?.metadata?.user_id;
+    const skinId = session?.metadata?.skin_id;
+    if (!userId || !skinId) {
+      console.error(`[stripe-webhook] ${event.type}: couldn't resolve user/skin for payment_intent`, paymentIntentId);
+      return new Response(JSON.stringify({ received: true }), { headers: { "Content-Type": "application/json" } });
+    }
+
+    const { error: deleteError } = await supabaseAdmin
+      .from("owned_skins")
+      .delete()
+      .eq("user_id", userId)
+      .eq("skin_id", skinId);
+    if (deleteError) {
+      console.error("[stripe-webhook] failed to revoke skin after refund/dispute:", deleteError.message, { userId, skinId });
+      return new Response("DB error", { status: 500 });
+    }
+
+    // If the now-revoked skin is what the account currently has equipped, fall back to the
+    // free default -- otherwise its effects (recolor, ember trail, etc.) keep showing even
+    // though the entitlement backing them is gone.
+    const { data: profile } = await supabaseAdmin
+      .from("profiles").select("equipped_skin_id").eq("user_id", userId).maybeSingle();
+    if (profile?.equipped_skin_id === skinId) {
+      const { data: defaultSkin } = await supabaseAdmin
+        .from("skins").select("id,emoji,color_filter").eq("is_default", true).maybeSingle();
+      if (defaultSkin) {
+        await supabaseAdmin
+          .from("profiles")
+          .update({ equipped_skin_id: defaultSkin.id, avatar: defaultSkin.emoji, color_filter: defaultSkin.color_filter })
+          .eq("user_id", userId);
+      }
+    }
+
+    console.log(`[stripe-webhook] revoked skin after ${event.type}:`, { userId, skinId, paymentIntentId });
   }
 
   return new Response(JSON.stringify({ received: true }), {

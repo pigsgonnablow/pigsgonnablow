@@ -81,9 +81,12 @@ export function createAuth({ url, anonKey }){
 
   async function setDisplayName(name){
     if (!sb || !session) return { error: 'Not signed in.' };
-    const { error } = await sb
-      .from('profiles')
-      .upsert({ user_id: session.user.id, display_name: name });
+    // RPC (security definer), not a raw client upsert -- see supabase_lockdown_direct_writes.sql
+    // for why a direct .from('profiles').upsert(...) can no longer work at all: PostgREST
+    // compiles an upsert's ON CONFLICT DO UPDATE to include every inserted column, including
+    // user_id, so it needs UPDATE privilege on user_id too -- which would let a client
+    // reassign the row to someone else's account. The RPC always writes auth.uid() itself.
+    const { error } = await sb.rpc('set_display_name', { p_name: name });
     if (error) return { error: error.message };
     await loadProfile(); // re-fetch rather than hand-roll the local copy, so avatar (and any
                           // future profile fields) stay correct instead of going stale/undefined

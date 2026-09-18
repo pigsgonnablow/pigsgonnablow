@@ -3,6 +3,15 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<!-- Defense-in-depth, not the primary fix (the leaderboard XSS sink itself was removed in
+     js/leaderboard.js) -- this is what would have contained it if that sink had shipped.
+     unsafe-inline is unfortunately required for both script-src (the game's whole logic is
+     one inline <script type="module">, no build step to add nonces/hashes) and style-src
+     (inline style="" attributes throughout). connect-src is pinned to this project's own
+     Supabase URL, which is the piece that actually buys something -- it blocks the page from
+     phoning out anywhere else, and would neuter a color_filter: url(https://evil/x) beacon
+     even though that value is no longer settable directly (see supabase_lockdown_direct_writes.sql). -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https://ljnshaoruygijgtcokwv.supabase.co; frame-ancestors 'none'; base-uri 'none'; form-action 'self';">
 <title>Cheeseburger Dragon vs. The Exploding Pig</title>
 <meta name="description" content="Feed the pig cheeseburgers, dodge the blast, grab the coins. A free browser game -- survive 15 escalating levels of Cheeseburger Dragon vs. The Exploding Pig.">
 <meta property="og:type" content="website">

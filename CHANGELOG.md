@@ -2,6 +2,56 @@
 
 Running log of notable changes, kept during dev sessions for reference.
 
+## 2026-09-18 (adversarial review fixes)
+
+A second, adversarial pass on the previous entry's fixes found the privilege-escalation
+fix was incomplete, plus a few smaller gaps. Fixed here:
+
+- **`supabase_lockdown_direct_writes.sql` only closed half the hole.** It revoked
+  `profiles` UPDATE but not INSERT -- a brand-new signed-in account (before its profile
+  row exists) could still `POST /rest/v1/profiles` directly with `equipped_skin_id:
+  'dragon-red'` and get the paid skin for free, same as the already-fixed UPDATE path.
+  Also, the fix as first written would have broken signup entirely: `js/auth.js`'s
+  `setDisplayName` did a client-side `.upsert(...)`, which PostgREST compiles into an
+  `INSERT ... ON CONFLICT DO UPDATE SET user_id = EXCLUDED.user_id, ...` -- Postgres checks
+  UPDATE privilege on every column in that SET list, including `user_id`, whether or not a
+  conflict happens, so revoking UPDATE down to just `display_name` would have made every
+  first-time profile creation fail with a permission error. Rewrote the migration to revoke
+  INSERT and UPDATE on `profiles` entirely and added a new `set_display_name()` RPC
+  (security definer, always writes `auth.uid()` itself) for `js/auth.js` to call instead.
+- Neither RPC explicitly revoked its default `PUBLIC`/`anon` EXECUTE grant (Postgres grants
+  that automatically on `CREATE FUNCTION`). Not currently exploitable (both already check
+  `auth.uid()`), but the migration now revokes `PUBLIC`/`anon` explicitly and adds an
+  unconditional `if auth.uid() is null then raise exception` guard to all three RPCs, so
+  that's a property of the function itself rather than an accident of what happens to
+  return zero rows.
+- `set search_path` on the security definer functions now includes `pg_temp` (searched
+  first by default) alongside `public`, closing the search-path-hijack vector for real
+  rather than just documenting an intent to.
+- **Refund/chargeback abuse**: buy a skin, then refund or dispute the charge, and the
+  entitlement used to stay granted forever -- nothing ever revisited `owned_skins` after
+  the initial grant. `supabase/functions/stripe-webhook/index.ts` now also handles
+  `charge.refunded`/`charge.dispute.created`: resolves the original checkout session from
+  the charge's `payment_intent`, deletes the `owned_skins` row, and falls back the account
+  to the free default skin if the revoked one was actually equipped. Both the sandbox and
+  live Stripe webhook endpoints have been updated (via the Stripe API) to actually send
+  these two event types -- **the Edge Function itself still needs `supabase functions
+  deploy stripe-webhook --no-verify-jwt` run against it to pick up this code change.**
+- Added a `event.livemode` vs. configured-key check in the webhook as defense-in-depth
+  against a test-mode event ever granting a real entitlement, in case the two Stripe
+  webhook secrets (sandbox/live) were ever mixed up.
+- Added a Content-Security-Policy meta tag to `index.html` (defense-in-depth, not the
+  primary fix -- the actual leaderboard XSS sink was already removed) pinning `connect-src`
+  to this project's own Supabase URL and disallowing everything not explicitly needed.
+  Verified locally: no CSP violations, Supabase CDN script and gameplay unaffected.
+- Bumped `sw.js`'s cache version (v21 -> v22) since `index.html` changed again.
+
+**Still needs to be done before this is actually live:** run the updated
+`supabase_lockdown_direct_writes.sql` in the Supabase SQL Editor (supersedes the version
+from the previous entry -- safe to re-run even if that one was already applied), and
+redeploy the `stripe-webhook` Edge Function so it picks up the refund-handling code and
+livemode check.
+
 ## 2026-09-18 (pre-1.0 review fixes)
 
 Found by an Opus-driven security/correctness pass ahead of calling this v1.0. Two real
