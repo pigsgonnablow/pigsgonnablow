@@ -2,6 +2,26 @@
 
 Running log of notable changes, kept during dev sessions for reference.
 
+## 2026-09-20 (tests + review follow-ups)
+
+- **First automated tests.** Added `package.json` (dev-only), vitest + jsdom, PGlite, a Deno
+  test suite and a GitHub Actions workflow -- see the README's Tests section. Covers the
+  leaderboard stored-XSS fix, the RLS/RPC lockdown (attacked for real as `anon` and
+  `authenticated`), the stripe-webhook grant/revoke/livemode logic, the service-worker
+  cache-bump rule, and `index.html` HUD/warning-banner and CSP tripwires.
+- **`supabase_lockdown_direct_writes.sql`: `anon` could still call the three RPCs.**
+  `revoke ... from public` doesn't remove Supabase's *direct* EXECUTE grant to `anon`, so the
+  file now also revokes from `anon` by name. (Found while verifying the live project; already
+  applied there as the `revoke_anon_execute_on_rpcs` migration.)
+- **Same file: the function grants now come last.** The `revoke ... on function` lines used to
+  sit before the functions they name were (re)created, which only worked because older schema
+  files had already created them -- on a fresh database they would error, and a script that
+  stopped there would leave the default EXECUTE grants in place.
+- **stripe-webhook: a partial refund no longer revokes the skin.** `charge.refunded` fires
+  for any refund; now only a full refund (`amount_refunded >= amount`) or a dispute revokes.
+  The handler moved from `index.ts` into `handler.ts` (`createHandler`) so it's testable; no
+  other behaviour change. **Needs a redeploy of the function to take effect.**
+
 ## 2026-09-18 (adversarial review fixes)
 
 A second, adversarial pass on the previous entry's fixes found the privilege-escalation

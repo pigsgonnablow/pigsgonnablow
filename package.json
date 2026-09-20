@@ -1,0 +1,17 @@
+{
+  "name": "pigsgonnablow",
+  "private": true,
+  "type": "module",
+  "description": "Dev-only tooling for tests. The game itself has no build step -- index.html loads ./js/*.js directly.",
+  "scripts": {
+    "test": "vitest run",
+    "test:fn": "deno test --no-check tests/functions/",
+    "test:all": "npm test && npm run test:fn"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.8",
+    "deno": "^2.1.0",
+    "jsdom": "^30.1.0",
+    "vitest": "^5.0.1"
+  }
+}

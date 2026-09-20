@@ -1,0 +1,43 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  # vitest: browser modules (jsdom), the service worker + index.html tripwires, and the
+  # supabase_*.sql files run against an in-process Postgres (PGlite -- no Docker needed).
+  unit-and-sql:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # the cache-bump guard diffs against a base commit
+
+      - name: Pick the base commit for the service-worker cache-bump guard
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "SW_GUARD_BASE=$(git merge-base origin/${{ github.base_ref }} HEAD)" >> "$GITHUB_ENV"
+          else
+            # a brand-new branch reports an all-zero "before"; the guard skips itself if the ref is invalid
+            echo "SW_GUARD_BASE=${{ github.event.before }}" >> "$GITHUB_ENV"
+          fi
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+
+  # Edge Function handler tests. Everything external is faked, so no secrets are needed.
+  edge-functions:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - run: deno test --no-check tests/functions/

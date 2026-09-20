@@ -59,18 +59,6 @@ begin
 end;
 $$;
 
--- CREATE FUNCTION grants EXECUTE to PUBLIC by default -- meaning `anon` (holding the
--- published anon key baked into index.html) could otherwise call any of these three RPCs
--- too. None of them currently do anything exploitable as anon (auth.uid() is null, so each
--- one's own check below is what stops it), but that's incidental, not intentional -- revoke
--- PUBLIC/anon explicitly so a future edit to any of these can't accidentally open one up.
-revoke all on function public.set_display_name(text) from public;
-revoke all on function public.submit_personal_best(integer) from public;
-revoke all on function public.equip_skin(text) from public;
-grant execute on function public.set_display_name(text) to authenticated;
-grant execute on function public.submit_personal_best(integer) to authenticated;
-grant execute on function public.equip_skin(text) to authenticated;
-
 -- security definer makes these run as their owner (the table owner, which bypasses RLS/
 -- grants entirely for their own internal queries) rather than as the calling role -- so they
 -- keep working correctly now that the grants above block direct writes from the client. Each
@@ -152,3 +140,24 @@ begin
   where user_id = auth.uid();
 end;
 $$;
+
+-- Kept at the END of the file, after every function above is defined, on purpose: on a fresh
+-- database these `revoke ... on function` statements error if the function doesn't exist yet,
+-- and a script that stopped there would leave the later create-or-replace with the default
+-- EXECUTE grants still in place.
+-- CREATE FUNCTION grants EXECUTE to PUBLIC by default -- meaning `anon` (holding the
+-- published anon key baked into index.html) could otherwise call any of these three RPCs
+-- too. None of them currently do anything exploitable as anon (auth.uid() is null, so each
+-- one's own check is what stops it), but that's incidental, not intentional -- revoke
+-- PUBLIC/anon explicitly so a future edit to any of these can't accidentally open one up.
+revoke all on function public.set_display_name(text) from public;
+revoke all on function public.submit_personal_best(integer) from public;
+revoke all on function public.equip_skin(text) from public;
+-- Supabase's default privileges also grant EXECUTE to `anon` directly (not via PUBLIC), so
+-- the revokes above alone leave anon able to call these -- revoke it by name too.
+revoke execute on function public.set_display_name(text) from anon;
+revoke execute on function public.submit_personal_best(integer) from anon;
+revoke execute on function public.equip_skin(text) from anon;
+grant execute on function public.set_display_name(text) to authenticated;
+grant execute on function public.submit_personal_best(integer) to authenticated;
+grant execute on function public.equip_skin(text) to authenticated;
