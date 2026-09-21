@@ -196,14 +196,16 @@ Deno.test("missing/empty skin_id: 400", async () => {
   }
 });
 
-Deno.test("unparseable body never creates a session", async () => {
-  // Currently surfaces as the generic 500 (req.json() throws inside the try). That is arguably
-  // a 400, but the important guarantee is that it can't reach Stripe.
-  const t = setup();
-  const res = await t.handler(post("not json"));
-  assert.ok(res.status >= 400);
-  assertCors(res);
-  assert.equal(t.sessionParams.length, 0);
+Deno.test("unparseable or non-object body: 400 (caller's mistake, not a 500), no session", async () => {
+  for (const body of ["not json", "", "null", "[]", "42", '"unicorn"']) {
+    const t = setup();
+    const res = await t.handler(post(body));
+    assert.equal(res.status, 400, JSON.stringify(body));
+    assertCors(res);
+    assert.deepEqual(await json(res), { error: "Invalid request body." });
+    assert.equal(t.sessionParams.length, 0);
+    assert.equal(t.queries.length, 0); // rejected before any catalog/ownership lookup
+  }
 });
 
 Deno.test("skin lookup is by the requested id", async () => {

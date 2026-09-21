@@ -39,7 +39,21 @@ export function createHandler({ stripe, supabaseFor, getSiteUrl }: CheckoutDeps)
         });
       }
 
-      const { skin_id } = await req.json();
+      // A body that isn't JSON (or isn't an object) is the caller's mistake, not a server fault,
+      // so it gets a 400 rather than falling through to the generic 500 below.
+      let payload: unknown;
+      try {
+        payload = await req.json();
+      } catch {
+        payload = null;
+      }
+      if (typeof payload !== "object" || payload === null || Array.isArray(payload)) {
+        return new Response(JSON.stringify({ error: "Invalid request body." }), {
+          status: 400,
+          headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
+        });
+      }
+      const { skin_id } = payload as { skin_id?: unknown };
       if (!skin_id) {
         return new Response(JSON.stringify({ error: "Missing skin_id." }), {
           status: 400,

@@ -9,6 +9,8 @@ Running log of notable changes, kept during dev sessions for reference.
   deployed function doesn't need a redeploy). 26 Deno tests cover auth (401s), the purchasable/
   already-owned checks, that identity and price come from the session/catalog and never the
   request body, the session parameters, CORS on every response, and the generic 500.
+  Also: a request body that isn't a JSON object now gets a 400 ("Invalid request body.")
+  instead of the generic 500.
 - **First automated tests.** Added `package.json` (dev-only), vitest + jsdom, PGlite, a Deno
   test suite and a GitHub Actions workflow -- see the README's Tests section. Covers the
   leaderboard stored-XSS fix, the RLS/RPC lockdown (attacked for real as `anon` and
