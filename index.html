@@ -849,7 +849,7 @@ import {
   function resetGame(){
     score = 0; coins = 0; lives = START_LIVES; feedProgress = 0; burgersToFull = START_BURGERS_TO_FULL;
     pigState = 'idle'; jumpTimer = 0; cooldownTimer = 0;
-    shockActive = false; particles = []; coinDrops = []; groundBurgers = [];
+    shockActive = false; shockRadius = 0; shakeTimer = 0; particles = []; coinDrops = []; groundBurgers = [];
     coinBatches.reset(); bonusMsgTimer = 0;
     burgerProjectiles = [];
     throwBtn.classList.add('hidden');

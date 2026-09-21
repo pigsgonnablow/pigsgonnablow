@@ -37,6 +37,15 @@ comparing every value against the original formulas.
   (no wind below level 5, a gust starting/pushing exactly 1.8px/frame/ending, indicator, a
   frame drawn mid-gust, golden level gate and one-at-a-time, spawn cap). Cache `v25` -> `v26`.
 
+- **Stage 5 -- new-run reset audit (and one tiny behaviour fix).** Diffed every state variable
+  between a fresh run and a long messy run followed by `resetGame()`. Two leaked: `shakeTimer`
+  (only decays while running, so dying mid-explosion could start the next run with a few frames
+  of leftover screen shake) and `shockRadius`; both are now reset. The rest are deliberately
+  not per-run (`startTime`/`running` are set by the start/end handlers, `glowClock` is a
+  free-running animation clock, `gustScreenAngle` only matters mid-gust, the dragon skin comes
+  from the profile). A test now fails if a new state variable is added without being reset.
+  Cache `v26` -> `v27`.
+
 ## 2026-09-21 (more tests)
 
 A second pass over the test suite, filling the gaps the first one left. No production code
