@@ -30,10 +30,17 @@ npm run test:all
 ```
 
 - `tests/sql/` applies the real `supabase_*.sql` files in order and attacks the result as
-  `anon` / `authenticated`. **When you add a schema file, add it to `SCHEMA_FILES` there**
-  (the lockdown file must stay last).
+  `anon` / `authenticated` -- both the write side (direct writes to `profiles`/`scores`/
+  `owned_skins`, tampering with the `skins` catalog's prices) and the read side (whose
+  profile/entitlement rows each role can actually see). **When you add a schema file, add it
+  to `SCHEMA_FILES` there** (the lockdown file must stay last).
 - `tests/unit/sw.test.js` fails if a file in `sw.js`'s `ASSETS` changed without a
-  `CACHE_NAME` bump (compares against `HEAD` locally, the merge base in CI).
+  `CACHE_NAME` bump (compares against `HEAD` locally, the merge base in CI), and runs the
+  real `install`/`activate`/`fetch` handlers against a fake `CacheStorage`.
+- `tests/unit/index-html.test.js` is static source tripwires only -- the game itself lives in
+  one inline module in `index.html` and can't be imported, so the game loop/rules are not
+  covered by tests. It also fails if a secret-shaped token (`sk_live_`, `whsec_`,
+  `sb_secret_`, `service_role`) ever appears in a browser-shipped file.
 - `supabase/functions/{stripe-webhook,create-checkout}/handler.ts` hold the function logic so it can be tested;
   `index.ts` only wires real clients into it.
 - CI (`.github/workflows/test.yml`) runs all of the above on every push/PR to `main`.

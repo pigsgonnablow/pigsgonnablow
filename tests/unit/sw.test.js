@@ -18,6 +18,7 @@ const parseSwSrc = (src) => ({
 });
 
 const sw = parseSw(read('sw.js'));
+const sw_CACHE = sw.cacheName;
 
 describe('sw.js ASSETS', () => {
   it('parses (guards the parser the other tests rely on)', () => {
@@ -36,38 +37,128 @@ describe('sw.js ASSETS', () => {
   });
 });
 
-describe('sw.js fetch handler', () => {
-  // Evaluate sw.js against a fake service-worker global so the real handler runs.
-  function loadSw() {
-    const handlers = {};
-    const self = {
-      location: { origin: 'https://www.pigsgonnablow.com' },
-      addEventListener: (type, fn) => { handlers[type] = fn; },
-      skipWaiting() {}, clients: { claim() {} },
+// Evaluate sw.js against a fake service-worker global so the real handlers run.
+// `store` is a { [cacheName]: Map(url -> response) } stand-in for the CacheStorage, so a test
+// can assert on what actually ended up cached (and under which cache name) rather than just
+// on which calls were made.
+function loadSw({ store = {}, fetchImpl } = {}) {
+  const handlers = {};
+  const waits = [];
+  const self = {
+    location: { origin: 'https://www.pigsgonnablow.com' },
+    addEventListener: (type, fn) => { handlers[type] = fn; },
+    skipWaiting() { self.skipWaitingCalled = true; },
+    clients: { claim() { self.claimCalled = true; } },
+  };
+  const cacheFor = (name) => {
+    store[name] = store[name] || new Map();
+    const m = store[name];
+    return {
+      async addAll(urls) { for (const u of urls) m.set(u, { ok: true, precached: true }); },
+      async put(request, response) { m.set(request.url ?? request, response); },
     };
-    const caches = { match: async () => undefined, open: async () => ({ put() {}, addAll() {} }), keys: async () => [] };
-    new Function('self', 'caches', 'fetch', read('sw.js'))(self, caches, async () => ({ ok: true, clone: () => ({}) }));
-    return handlers.fetch;
-  }
-  const fire = (fetchHandler, url, method = 'GET') => {
-    let responded = false;
-    fetchHandler({ request: { url, method }, respondWith: () => { responded = true; } });
+  };
+  const caches = {
+    async match(request) {
+      for (const m of Object.values(store)) if (m.has(request.url ?? request)) return m.get(request.url ?? request);
+      return undefined;
+    },
+    async open(name) { return cacheFor(name); },
+    async keys() { return Object.keys(store); },
+    async delete(name) { return delete store[name]; },
+  };
+  const fetchFn = fetchImpl || (async () => ({ ok: true, clone: () => ({ body: 'fresh' }), body: 'fresh' }));
+  new Function('self', 'caches', 'fetch', read('sw.js'))(self, caches, fetchFn);
+  // event.waitUntil just needs to hand the promise back so a test can await the work.
+  const event = (extra) => ({ waitUntil: (p) => waits.push(p), ...extra });
+  return {
+    self, store, handlers, event,
+    settle: () => Promise.all(waits.splice(0)),
+    fire: (type, extra) => { const e = event(extra); handlers[type](e); return e; },
+  };
+}
+
+describe('sw.js fetch handler', () => {
+  const fire = (sw, url, method = 'GET') => {
+    let responded = null;
+    sw.handlers.fetch({ request: { url, method }, respondWith: (p) => { responded = p; } });
     return responded;
   };
 
   it('REGRESSION: never intercepts cross-origin requests (Supabase API responses must not be cached forever)', () => {
-    const h = loadSw();
-    expect(fire(h, 'https://ljnshaoruygijgtcokwv.supabase.co/rest/v1/scores?select=*')).toBe(false);
+    expect(fire(loadSw(), 'https://ljnshaoruygijgtcokwv.supabase.co/rest/v1/scores?select=*')).toBe(null);
   });
 
   it('never intercepts non-GET requests', () => {
-    const h = loadSw();
-    expect(fire(h, 'https://www.pigsgonnablow.com/index.html', 'POST')).toBe(false);
+    expect(fire(loadSw(), 'https://www.pigsgonnablow.com/index.html', 'POST')).toBe(null);
   });
 
   it('does handle same-origin GETs', () => {
-    const h = loadSw();
-    expect(fire(h, 'https://www.pigsgonnablow.com/index.html')).toBe(true);
+    expect(fire(loadSw(), 'https://www.pigsgonnablow.com/index.html')).not.toBe(null);
+  });
+
+  it('serves a precached asset from the cache without going to the network', async () => {
+    let fetched = 0;
+    const sw = loadSw({
+      store: { [sw_CACHE]: new Map([['https://www.pigsgonnablow.com/js/iso.js', { ok: true, body: 'cached' }]]) },
+      fetchImpl: async () => { fetched++; return { ok: true, clone: () => ({}) }; },
+    });
+    const res = await fire(sw, 'https://www.pigsgonnablow.com/js/iso.js');
+    expect(res.body).toBe('cached');
+    expect(fetched).toBe(0);
+  });
+
+  it('caches a fresh same-origin response under the CURRENT cache name', async () => {
+    const sw = loadSw();
+    await fire(sw, 'https://www.pigsgonnablow.com/js/iso.js');
+    await sw.settle();
+    await new Promise((r) => setTimeout(r, 0)); // the cache.put chain isn't awaited by the handler
+    expect([...(sw.store[sw_CACHE] ?? new Map()).keys()]).toEqual(['https://www.pigsgonnablow.com/js/iso.js']);
+  });
+
+  it('REGRESSION: a failed response (404/500) is never written to the cache', async () => {
+    // Caching a 404 would poison offline mode for that asset until the next CACHE_NAME bump.
+    const sw = loadSw({ fetchImpl: async () => ({ ok: false, status: 404, clone: () => ({}) }) });
+    const res = await fire(sw, 'https://www.pigsgonnablow.com/js/typo.js');
+    await new Promise((r) => setTimeout(r, 0));
+    expect(res.status).toBe(404);
+    expect(Object.values(sw.store).every((m) => m.size === 0)).toBe(true);
+  });
+
+  it('offline with the asset already cached: answered from the cache, network never attempted', async () => {
+    // (Note: sw.js's `.catch(() => cached)` tail can only ever return undefined -- `cached ||`
+    // has already short-circuited whenever `cached` is truthy -- so a cache MISS while offline
+    // is a network error either way. This is the path that actually keeps the PWA playable.)
+    let fetched = 0;
+    const sw = loadSw({
+      store: { [sw_CACHE]: new Map([['https://www.pigsgonnablow.com/index.html', { ok: true, body: 'cached' }]]) },
+      fetchImpl: async () => { fetched++; throw new TypeError('Failed to fetch'); },
+    });
+    expect((await fire(sw, 'https://www.pigsgonnablow.com/index.html')).body).toBe('cached');
+    expect(fetched).toBe(0);
+  });
+});
+
+describe('sw.js install / activate', () => {
+  it('install precaches exactly the ASSETS list, into the current cache', async () => {
+    const s = loadSw();
+    s.fire('install');
+    await s.settle();
+    expect(Object.keys(s.store)).toEqual([sw_CACHE]);
+    // exactly the paths listed in ASSETS, verbatim -- nothing dropped, nothing extra
+    const listed = [...sw.assetsBlock.matchAll(/'([^']+)'/g)].map((m) => m[1]);
+    expect([...s.store[sw_CACHE].keys()]).toEqual(listed);
+    expect(s.self.skipWaitingCalled).toBe(true); // new version takes over without a second visit
+  });
+
+  it('REGRESSION: activate deletes every OTHER cache and keeps the current one', async () => {
+    // This is what makes a CACHE_NAME bump actually take effect -- without it the old
+    // version's entries stay around and caches.match can keep answering from them.
+    const s = loadSw({ store: { 'burger-pig-v1': new Map([['/x', {}]]), 'burger-pig-v21': new Map(), [sw_CACHE]: new Map() } });
+    s.fire('activate');
+    await s.settle();
+    expect(Object.keys(s.store)).toEqual([sw_CACHE]);
+    expect(s.self.claimCalled).toBe(true);
   });
 });
 

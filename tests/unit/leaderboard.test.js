@@ -165,6 +165,45 @@ describe('submitting', () => {
     expect(log.inserts).toHaveLength(1);
   });
 
+  it("REGRESSION: after submitting, the guest's own row is the one highlighted (you!)", async () => {
+    // Signed-in rows are matched by user_id; a guest row has none, so it's matched by the
+    // name+score that was just submitted. A same-name row from someone else's run must not
+    // steal the highlight.
+    const board = [
+      { user_id: null, name: 'Bob', score: 9000, avatar: null, color_filter: null }, // a different Bob
+      { user_id: null, name: 'Bob', score: 420, avatar: null, color_filter: null },  // this run
+    ];
+    const { client } = createFakeSupabase({ tables: { scores: { select: { data: board, error: null } } } });
+    const lb = createLeaderboard({ auth: makeAuth(client), elements });
+    lb.onGameOver(420);
+    elements.nameInput.value = 'Bob';
+    elements.submitBtn.click();
+    await flush();
+    const strong = elements.listEl.querySelectorAll('strong');
+    expect(strong).toHaveLength(1);
+    expect(strong[0].textContent).toBe('Bob — 420 (you!)');
+  });
+
+  it('a new run clears the previous run\'s highlight and lets the player submit again', async () => {
+    const board = [{ user_id: null, name: 'Bob', score: 420, avatar: null, color_filter: null }];
+    const { client, log } = createFakeSupabase({ tables: { scores: { select: { data: board, error: null } } } });
+    const lb = createLeaderboard({ auth: makeAuth(client), elements });
+    lb.onGameOver(420);
+    elements.nameInput.value = 'Bob';
+    elements.submitBtn.click();
+    await flush();
+    expect(log.inserts).toHaveLength(1);
+
+    lb.onGameOver(50); // next run -- alreadySubmitted/justSubmittedName must reset
+    await flush();
+    expect(elements.listEl.querySelectorAll('strong')).toHaveLength(0);
+    expect(elements.submitBtn.disabled).toBe(false);
+    elements.nameInput.value = 'Bob';
+    elements.submitBtn.click();
+    await flush();
+    expect(log.inserts.map((i) => i.row.score)).toEqual([420, 50]);
+  });
+
   it('a failed guest submit re-enables the button', async () => {
     const { client } = createFakeSupabase({ tables: { scores: { insert: { error: { message: 'denied' } } } } });
     const lb = createLeaderboard({ auth: makeAuth(client), elements });

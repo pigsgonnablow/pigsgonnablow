@@ -222,6 +222,17 @@ Deno.test("REGRESSION: unpaid then async_payment_succeeded -> only the second gr
   assert.equal(calls.length, 1);
 });
 
+Deno.test("REGRESSION: async_payment_failed never grants, even though it carries a full session", async () => {
+  // The failure counterpart of async_payment_succeeded. It's deliberately unhandled, so the
+  // only thing standing between it and a free skin is that its event type isn't matched --
+  // and the session it carries would otherwise look grantable if someone widened that check
+  // (note payment_status on a failed delayed payment need not have flipped back to "unpaid").
+  const { handler, calls } = setup();
+  const { result: res } = await quietly(() => post(handler, event("checkout.session.async_payment_failed", paidSession())));
+  assert.equal(res.status, 200);
+  assert.deepEqual(calls, []);
+});
+
 for (
   const [label, over] of [
     ["a non-payment mode", { mode: "subscription" }],

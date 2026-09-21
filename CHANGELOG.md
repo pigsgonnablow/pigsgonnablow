@@ -2,6 +2,67 @@
 
 Running log of notable changes, kept during dev sessions for reference.
 
+## 2026-09-21 (more tests)
+
+A second pass over the test suite, filling the gaps the first one left. No production code
+changed -- every finding below is a test, not a fix. 111 -> 151 vitest tests, 59 -> 60 Deno
+tests. Each new regression test was mutation-checked (the bug it guards against was
+re-introduced, the test confirmed to fail, the file restored).
+
+- **Read-side RLS is now attacked too, not just the write side.** The existing SQL suite
+  proved a client can't *write* `profiles`/`scores`/`owned_skins`; it never checked what a raw
+  PostgREST GET can *see*. Added: `authenticated` can only read its own `profiles` row and
+  `anon` none at all; an account can't see anyone else's `owned_skins` (who bought what), and
+  `anon` sees none; the `skins` catalog stays publicly readable (the shop renders before
+  sign-in).
+- **The `skins` catalog is now covered as an entitlement surface.** `equip_skin` only demands
+  ownership when `price_cents > 0`, so a client able to write the catalog could set a paid
+  skin's price to 0 and equip it free -- without touching either of the two tables the
+  lockdown file concentrates on. Tests confirm a signed-in client can't update a price,
+  re-activate the retired griffin, insert a free clone of a paid skin, delete a catalog row,
+  or delete its own `owned_skins` entitlement row.
+- **Guest score bounds.** `js/leaderboard.js` trims names to 12 characters and only ever
+  submits what the run scored, but neither is a control -- `anon` can POST to `/rest/v1/scores`
+  directly. Tests now confirm the server rejects a 13-character or empty name and a score
+  outside 0..1,000,000, and accepts a legitimate row at the limits.
+- **One row per account, forever.** `scores_user_id_unique` must stay a *plain* index (a
+  partial one can't be inferred by `ON CONFLICT (user_id)` -- that's the bug that broke every
+  signed-in submit on 2026-08-18) and must still allow unlimited anonymous NULL rows. Both are
+  asserted directly, plus: four submits from one account still leave exactly one row.
+- **Service worker: `install`/`activate` now actually run.** Previously only the fetch
+  handler's origin/method filtering was tested. Added, against a fake `CacheStorage`: install
+  precaches exactly the `ASSETS` list into the current cache; activate deletes every *other*
+  cache and keeps the current one (this is what makes a `CACHE_NAME` bump take effect at all);
+  a cache hit is served without touching the network; and a failed (404/500) response is never
+  written to the cache, which would otherwise poison offline mode for that asset until the
+  next bump.
+- **`auth.onChange` fires synchronously.** index.html depends on this (the account widget must
+  render something on first paint), and it's why `dragonEmoji`/`dragonFilter`/`dragonIsRed`
+  have to be declared *above* the registration -- the temporal-dead-zone `ReferenceError` that
+  killed every button on the page on 2026-08-20. Now pinned from both sides: a unit test on the
+  synchronous contract, and a tripwire that the three declarations precede the one
+  `auth.onChange(` in index.html.
+- **index.html tripwires**: the post-Checkout `?checkout=` handler still chains `shop.render()`
+  off `authReady` (the 2026-08-20 race that rendered every Owned/Equipped row wrong for a buyer
+  returning from Stripe) and still strips the query param; and no browser-shipped file
+  (`index.html`, `sw.js`, `js/*.js`) contains a secret-shaped token -- a service-role key or
+  Stripe secret pasted in where the publishable key goes would hand every visitor full database
+  access, and nothing in a browser would complain.
+- **Leaderboard/shop/auth gaps**: a guest's own row is highlighted by name *and* score after
+  submitting (a same-name stranger's row must not steal it); a new run resets the submit box so
+  the next score can still be submitted; a stale `shop.render()` never overwrites a newer one
+  (the same race the leaderboard shipped for real, and the exact path a post-Checkout return
+  takes); and a `profiles` fetch that errors *or throws* still leaves the widget in the safe
+  "signed in, pick a name" state rather than blank.
+- **stripe-webhook**: `checkout.session.async_payment_failed` grants nothing, even though it
+  carries a full, otherwise-grantable session -- the only thing stopping it is that its event
+  type isn't matched.
+- **Known gap, deliberately not covered**: the game itself (scoring, levels, the coin-batch
+  bonus-heart rule, hit detection, wind gusts) lives in one inline module inside `index.html`
+  and cannot be imported, so it has no behavioural tests -- only the static tripwires above.
+  Covering it properly means extracting the rules into `js/` modules, which is a real refactor,
+  not a test change.
+
 ## 2026-09-20 (tests + review follow-ups)
 
 - **stripe-webhook: permanent failures on a paid session no longer loop.** An unknown

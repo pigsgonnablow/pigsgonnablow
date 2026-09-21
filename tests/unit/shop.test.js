@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createShop } from '../../js/shop.js';
-import { createFakeSupabase, flush, SESSION } from '../helpers/fakeSupabase.js';
+import { createFakeSupabase, deferred, flush, SESSION } from '../helpers/fakeSupabase.js';
 
 const SKINS = [
   { id: 'pig', name: 'Pig', emoji: 'P', price_cents: 0, color_filter: null },
@@ -57,6 +57,32 @@ describe('render', () => {
     expect(unicorn.title).toBe('Sign in to buy');
     expect(elements.statusEl.textContent).toContain('Sign in');
     expect(log.queries.some((q) => q.table === 'owned_skins')).toBe(false);
+  });
+
+  it('REGRESSION: a slow, stale render never overwrites a newer one', async () => {
+    // Same hazard the leaderboard shipped for real: returning from Stripe Checkout triggers a
+    // render while the title screen's own render may still be in flight, and whichever
+    // response lands last used to win -- which here means every Owned/BUY button on the page.
+    const first = deferred();
+    const second = deferred();
+    const pending = [first, second];
+    const fake = createFakeSupabase({
+      tables: {
+        skins: { select: () => pending.shift().promise },
+        owned_skins: { select: { data: [], error: null } },
+      },
+    });
+    const auth = { getClient: () => fake.client, getState: () => ({ session: SESSION, profile: null }) };
+    const shop = createShop({ auth, elements });
+
+    const p1 = shop.render(); // resolved LAST
+    const p2 = shop.render(); // newest
+    second.resolve({ data: [{ id: 'newest', name: 'Newest', emoji: 'N', price_cents: 199, color_filter: null }], error: null });
+    await p2;
+    first.resolve({ data: [{ id: 'oldest', name: 'Oldest', emoji: 'O', price_cents: 199, color_filter: null }], error: null });
+    await p1;
+
+    expect(cards().map((c) => c.querySelector('.skinName').textContent)).toEqual(['Newest']);
   });
 
   it('shows "unavailable" when supabase never loaded', async () => {

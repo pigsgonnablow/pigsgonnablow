@@ -34,6 +34,22 @@ describe('init', () => {
     expect(states.at(-1)).toEqual({ session: null, profile: null });
   });
 
+  it('REGRESSION: onChange fires its callback synchronously, during the call itself', () => {
+    // index.html relies on this (the account widget must render something immediately), and
+    // it is why `dragonEmoji`/`dragonFilter`/`dragonIsRed` have to be declared *above* the
+    // auth.onChange(...) registration: reading them from a callback that fires synchronously
+    // before their `let` has run is a temporal-dead-zone ReferenceError, thrown from inside
+    // the startup IIFE, which once silently killed every button on the page. If onChange ever
+    // became async (a microtask/queue), that hazard would quietly disappear -- and so would
+    // the guarantee that the widget is never blank on first paint.
+    const { client } = createFakeSupabase();
+    window.supabase = { createClient: () => client };
+    const auth = createAuth({ url: 'u', anonKey: 'k' });
+    let fired = 0;
+    auth.onChange(() => { fired++; });
+    expect(fired).toBe(1); // not 0 -- no await, no flush
+  });
+
   it('a stored session loads the profile', async () => {
     const { auth, states } = build({
       auth: { getSession: { data: { session: SESSION }, error: null } },
@@ -41,6 +57,26 @@ describe('init', () => {
     });
     await auth.init();
     expect(states.at(-1)).toEqual({ session: SESSION, profile: profileRow });
+  });
+
+  it('a profile fetch that errors still notifies, signed in but with no profile', async () => {
+    // The "account widget stuck completely blank" failure mode: a hiccup while restoring the
+    // profile must leave the UI in the safe "signed in, pick a name" state, never mid-render.
+    const { auth, states } = build({
+      auth: { getSession: { data: { session: SESSION }, error: null } },
+      tables: { profiles: { select: { data: null, error: { message: 'network' } } } },
+    });
+    await auth.init();
+    expect(states.at(-1)).toEqual({ session: SESSION, profile: null });
+  });
+
+  it('a profile fetch that throws is caught the same way', async () => {
+    const { auth, states } = build({
+      auth: { getSession: { data: { session: SESSION }, error: null } },
+      tables: { profiles: { select: () => { throw new Error('boom'); } } },
+    });
+    await auth.init();
+    expect(states.at(-1)).toEqual({ session: SESSION, profile: null });
   });
 
   it('reacts to a later sign-in (magic link) and sign-out', async () => {

@@ -322,5 +322,115 @@ describe('RPC behaviour', () => {
       const r = await submit(U2, 2_000_000);
       expect(r.message).toMatch(/violates check constraint|scores_score_check/);
     });
+
+    it('REGRESSION: an account never accumulates more than one row, however many runs it submits', async () => {
+      // The ON CONFLICT (user_id) upsert is what keeps one row per account. It silently
+      // stopped matching once (a *partial* unique index can't be inferred by ON CONFLICT
+      // unless its WHERE clause is repeated there), which made every submit fail -- but the
+      // same class of mistake the other way round would quietly append a row per run and
+      // flood the board with duplicates, which is exactly what accounts were added to stop.
+      for (const n of [1, 950, 20, 1000]) await submit(U1, n);
+      const r = await one('select count(*)::int as n from public.scores where user_id = $1', [U1]);
+      expect(r.n).toBe(1);
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------------------
+// Read-side RLS. The write side is attacked above; these cover what a raw PostgREST GET can
+// *see*, which no amount of reading the client code can tell you: `anon` holds the
+// publishable key baked into index.html, so every select policy here is public-facing.
+// ---------------------------------------------------------------------------------------
+describe('read isolation', () => {
+  it("authenticated cannot read anyone else's profile (profiles_select_own)", async () => {
+    const mine = await as('authenticated', U2, () => attempt('select user_id from public.profiles'));
+    expect(mine.rows.map((r) => r.user_id)).toEqual([U2]); // U1's row exists but is invisible
+  });
+
+  it('anon cannot read profiles at all', async () => {
+    const r = await as('anon', null, () => attempt('select * from public.profiles'));
+    expect(r.rows).toEqual([]);
+  });
+
+  it('REGRESSION: an account cannot see what anyone else owns (owned_skins_select_own)', async () => {
+    const u1 = await as('authenticated', U1, () => attempt('select skin_id from public.owned_skins'));
+    expect(u1.rows.map((r) => r.skin_id).sort()).toEqual(['dragon-red', 'griffin']);
+    const u2 = await as('authenticated', U2, () => attempt('select skin_id from public.owned_skins'));
+    expect(u2.rows).toEqual([]);
+    const anon = await as('anon', null, () => attempt('select skin_id from public.owned_skins'));
+    expect(anon.rows).toEqual([]);
+  });
+
+  it('the skins catalog stays readable signed out (the shop renders before sign-in)', async () => {
+    const r = await as('anon', null, () => attempt("select id from public.skins where id = 'dragon-red'"));
+    expect(r.rows).toEqual([{ id: 'dragon-red' }]);
+  });
+});
+
+describe('REGRESSION: the skins catalog is read-only to clients (free-skin escalation via price)', () => {
+  // equip_skin only demands ownership when price_cents > 0 -- so a client able to write the
+  // catalog could set a paid skin's price to 0 and equip it for nothing, without ever
+  // touching profiles or owned_skins (the two tables the lockdown file concentrates on).
+  const priceOfRed = async () => (await one("select price_cents, active from public.skins where id = 'dragon-red'"));
+
+  it('authenticated cannot UPDATE a price down to free', async () => {
+    const before = await priceOfRed();
+    expect(before.price_cents).toBeGreaterThan(0);
+    await as('authenticated', U2, () => attempt("update public.skins set price_cents = 0 where id = 'dragon-red'"));
+    expect(await priceOfRed()).toEqual(before);
+    // ...and equipping it is still refused for a non-owner
+    const r = await as('authenticated', U2, () => attempt("select public.equip_skin('dragon-red')"));
+    expect(r.message).toContain('skin not owned');
+  });
+
+  it('authenticated cannot INSERT a free clone of a paid skin', async () => {
+    const r = await as('authenticated', U2, () =>
+      attempt(`insert into public.skins (id, name, kind, emoji, price_cents) values ('free-red', 'x', 'color', 'D', 0)`));
+    expect(r.code).toBe(INSUFFICIENT_PRIVILEGE);
+  });
+
+  it('authenticated cannot re-activate the retired griffin, or delete a catalog row', async () => {
+    await as('authenticated', U1, () => attempt("update public.skins set active = true where id = 'griffin'"));
+    expect((await one("select active from public.skins where id = 'griffin'")).active).toBe(false);
+    await as('authenticated', U1, () => attempt("delete from public.skins where id = 'dragon-red'"));
+    expect((await one("select count(*)::int as n from public.skins where id = 'dragon-red'")).n).toBe(1);
+  });
+
+  it('a client cannot revoke someone else\'s (or their own) entitlement row', async () => {
+    await as('authenticated', U1, () => attempt("delete from public.owned_skins where skin_id = 'dragon-red'"));
+    expect((await one("select count(*)::int as n from public.owned_skins where user_id = $1", [U1])).n).toBe(2);
+  });
+});
+
+describe('guest score bounds are enforced server-side, not just by the client', () => {
+  // js/leaderboard.js trims the typed name to 12 chars and only ever sends what the run
+  // actually scored -- neither is a control, since anon can POST /rest/v1/scores directly.
+  const insert = (name, score) =>
+    as('anon', null, () => attempt('insert into public.scores (name, score) values ($1, $2)', [name, score]));
+  const rejected = (r) => expect(String(r.code)).toMatch(/42501|23514/); // RLS check or table check constraint
+
+  it('accepts a legitimate guest row at the limits', async () => {
+    expect((await insert('abcdefghijkl', 1_000_000)).code).toBeUndefined();
+  });
+
+  it.each([
+    ['a 13-character name', 'abcdefghijklm', 10],
+    ['an empty name', '', 10],
+    ['a score above the cap', 'Cheater', 1_000_001],
+    ['a negative score', 'Cheater', -5],
+  ])('rejects %s', async (_label, name, score) => {
+    rejected(await insert(name, score));
+  });
+
+  it('many anonymous rows coexist (the unique index on user_id must not apply to NULLs)', async () => {
+    for (let i = 0; i < 3; i++) expect((await insert('Guest', 5)).code).toBeUndefined();
+    const r = await one("select count(*)::int as n from public.scores where user_id is null and name = 'Guest'");
+    expect(r.n).toBeGreaterThanOrEqual(3);
+  });
+
+  it('scores_user_id_unique is a plain, non-partial index (ON CONFLICT cannot infer a partial one)', async () => {
+    const r = await one(`select indpred is null as plain, indisunique from pg_index
+      where indexrelid = 'public.scores_user_id_unique'::regclass`);
+    expect(r).toEqual({ plain: true, indisunique: true });
   });
 });
