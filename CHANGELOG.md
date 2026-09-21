@@ -4,6 +4,14 @@ Running log of notable changes, kept during dev sessions for reference.
 
 ## 2026-09-20 (tests + review follow-ups)
 
+- **stripe-webhook: permanent failures on a paid session no longer loop.** An unknown
+  `skin_id`/user (Postgres FK violation `23503` on the grant), an unexpected session shape, or
+  missing metadata used to return 500/400, so Stripe retried a delivery that could never
+  succeed for ~3 days. They now return 200 and log `ACTION REQUIRED: paid session NOT granted`
+  with the session, payment_intent, amount and metadata -- money was taken and nothing was
+  granted, so search the function logs for that string and refund/grant by hand. Any other DB
+  error still returns 500 (transient, worth retrying); bad signatures and livemode mismatches
+  still return 400. **Needs a redeploy of the function to take effect.**
 - **create-checkout tests.** Same refactor as the webhook: logic moved from `index.ts` into
   `handler.ts` (`createHandler`), `index.ts` is a thin wrapper, no behaviour change (so the
   deployed function doesn't need a redeploy). 26 Deno tests cover auth (401s), the purchasable/

@@ -13,7 +13,7 @@ interface Call { op: string; table: string; [k: string]: unknown }
 interface FakeDbOptions {
   // Responder for `.from(table).select(...).eq(col, val).maybeSingle()`.
   select?: (table: string, col: string, val: unknown) => { data: unknown };
-  upsertError?: { message: string } | null;
+  upsertError?: { message: string; code?: string } | null;
   deleteError?: { message: string } | null;
 }
 
@@ -94,6 +94,14 @@ function post(handler: (r: Request) => Promise<Response>, ev: unknown, sig: stri
     headers: sig ? { "stripe-signature": sig } : {},
     body: JSON.stringify(ev),
   }));
+}
+
+// The loud, greppable line the operator is meant to find when a paid session can't be granted.
+function assertActionRequired(errors: unknown[][]) {
+  assert.ok(
+    errors.some((e) => String(e[0]).includes("ACTION REQUIRED: paid session NOT granted")),
+    "expected an ACTION REQUIRED log line",
+  );
 }
 
 const paidSession = (over: Record<string, unknown> = {}) => ({
@@ -222,11 +230,12 @@ for (
     ["a negative amount_total", { amount_total: -5 }],
   ] as const
 ) {
-  Deno.test(`refuses a session with ${label} (400, no grant)`, async () => {
+  Deno.test(`a paid session with ${label}: no grant, 200 (no pointless retries) + ACTION REQUIRED log`, async () => {
     const { handler, calls } = setup();
-    const { result: res } = await quietly(() => post(handler, event("checkout.session.completed", paidSession(over))));
-    assert.equal(res.status, 400);
+    const { result: res, errors } = await quietly(() => post(handler, event("checkout.session.completed", paidSession(over))));
+    assert.equal(res.status, 200);
     assert.deepEqual(calls, []);
+    assertActionRequired(errors);
   });
 }
 
@@ -237,11 +246,12 @@ for (
     ["missing skin_id", { user_id: "user-1" }],
   ] as const
 ) {
-  Deno.test(`refuses a session with ${label} (400, no grant)`, async () => {
+  Deno.test(`a paid session with ${label}: no grant, 200 (no pointless retries) + ACTION REQUIRED log`, async () => {
     const { handler, calls } = setup();
-    const { result: res } = await quietly(() => post(handler, event("checkout.session.completed", paidSession({ metadata }))));
-    assert.equal(res.status, 400);
+    const { result: res, errors } = await quietly(() => post(handler, event("checkout.session.completed", paidSession({ metadata }))));
+    assert.equal(res.status, 200);
     assert.deepEqual(calls, []);
+    assertActionRequired(errors);
   });
 }
 
@@ -260,6 +270,40 @@ Deno.test("a DB error while granting returns 500 so Stripe retries", async () =>
   const { handler } = setup({ db: { upsertError: { message: "boom" } } });
   const { result: res } = await quietly(() => post(handler, event("checkout.session.completed", paidSession())));
   assert.equal(res.status, 500);
+});
+
+Deno.test("a transient DB error (any code but 23503) still returns 500 and is NOT logged as unrecoverable", async () => {
+  for (const code of [undefined, "08006", "57014", "40001"]) {
+    const { handler } = setup({ db: { upsertError: { message: "boom", code } } });
+    const { result: res, errors } = await quietly(() => post(handler, event("checkout.session.completed", paidSession())));
+    assert.equal(res.status, 500, String(code));
+    assert.ok(!errors.some((e) => String(e[0]).includes("ACTION REQUIRED")), String(code));
+  }
+});
+
+Deno.test("an unknown skin_id (FK violation 23503): 200 so Stripe stops retrying, ACTION REQUIRED log with the details", async () => {
+  const { handler } = setup({
+    db: { upsertError: { message: 'insert or update on table "owned_skins" violates foreign key constraint', code: "23503" } },
+  });
+  const { result: res, errors } = await quietly(() => post(handler, event("checkout.session.completed", paidSession())));
+  assert.equal(res.status, 200);
+  assertActionRequired(errors);
+  // the log must carry enough to refund/grant by hand
+  const detail = JSON.stringify(errors.find((e) => String(e[0]).includes("ACTION REQUIRED")));
+  for (const needle of ["cs_1", "user-1", "skin-a", "199"]) assert.ok(detail.includes(needle), needle);
+});
+
+Deno.test("async_payment_succeeded with an unknown skin is handled the same way", async () => {
+  const { handler } = setup({ db: { upsertError: { message: "fk", code: "23503" } } });
+  const { result: res, errors } = await quietly(() => post(handler, event("checkout.session.async_payment_succeeded", paidSession())));
+  assert.equal(res.status, 200);
+  assertActionRequired(errors);
+});
+
+Deno.test("an ordinary successful grant does not emit ACTION REQUIRED", async () => {
+  const { handler } = setup();
+  const { errors } = await quietly(() => post(handler, event("checkout.session.completed", paidSession())));
+  assert.ok(!errors.some((e) => String(e[0]).includes("ACTION REQUIRED")));
 });
 
 // ---------------------------------------------------------------- revoking

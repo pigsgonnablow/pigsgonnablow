@@ -12,6 +12,26 @@ export interface WebhookDeps {
   isLiveKey: boolean;
 }
 
+const ok = () => new Response(JSON.stringify({ received: true }), { headers: { "Content-Type": "application/json" } });
+
+// A *paid* session we can never grant (bad shape, missing metadata, skin/user that doesn't
+// exist). Stripe retries anything but a 2xx for ~3 days, and none of these can succeed on a
+// retry, so acknowledge with a 200 and rely on this log line instead -- money was taken and
+// nothing was granted, so someone has to look at it. Grep the function logs for
+// "ACTION REQUIRED". Transient failures (DB down etc.) deliberately still return 500 so they
+// ARE retried.
+function paidButNotGranted(reason: string, session: Stripe.Checkout.Session, extra: Record<string, unknown> = {}) {
+  console.error(`[stripe-webhook] ACTION REQUIRED: paid session NOT granted (${reason}) -- returning 200 so Stripe stops retrying; refund or grant manually:`, {
+    session: session.id,
+    payment_intent: session.payment_intent,
+    amount_total: session.amount_total,
+    currency: session.currency,
+    metadata: session.metadata,
+    ...extra,
+  });
+  return ok();
+}
+
 export function createHandler({ stripe, supabaseAdmin, webhookSecret, isLiveKey }: WebhookDeps) {
   return async (req: Request): Promise<Response> => {
     const signature = req.headers.get("stripe-signature");
@@ -59,15 +79,13 @@ export function createHandler({ stripe, supabaseAdmin, webhookSecret, isLiveKey 
       // priced skin -- amount_total <= 0 or a mode mismatch would mean either a bug on our
       // side or a session that didn't come from our own checkout flow, and shouldn't happen.
       if (session.mode !== "payment" || !session.amount_total || session.amount_total <= 0){
-        console.error("[stripe-webhook] unexpected session shape, refusing to grant:", session.id, session.mode, session.amount_total);
-        return new Response("Unexpected session", { status: 400 });
+        return paidButNotGranted("unexpected session shape", session, { mode: session.mode });
       }
 
       const userId = session.metadata?.user_id;
       const skinId = session.metadata?.skin_id;
       if (!userId || !skinId) {
-        console.error("[stripe-webhook] session missing user_id/skin_id metadata:", session.id);
-        return new Response("Missing metadata", { status: 400 });
+        return paidButNotGranted("missing user_id/skin_id metadata", session);
       }
 
       // Cross-check against the catalog as a sanity/audit signal -- not a gate (the amount
@@ -101,6 +119,11 @@ export function createHandler({ stripe, supabaseAdmin, webhookSecret, isLiveKey 
           },
           { onConflict: "user_id,skin_id", ignoreDuplicates: true },
         );
+      // 23503 = foreign_key_violation: the skin_id (or user) in the metadata doesn't exist, so
+      // no retry can ever succeed -- unlike every other DB error, which may be transient.
+      if (error?.code === "23503") {
+        return paidButNotGranted("unknown skin or user (foreign key violation)", session, { userId, skinId, dbError: error.message });
+      }
       if (error) {
         console.error("[stripe-webhook] failed to grant skin:", error.message, { userId, skinId });
         return new Response("DB error", { status: 500 });
