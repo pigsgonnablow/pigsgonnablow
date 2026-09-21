@@ -37,10 +37,17 @@ npm run test:all
 - `tests/unit/sw.test.js` fails if a file in `sw.js`'s `ASSETS` changed without a
   `CACHE_NAME` bump (compares against `HEAD` locally, the merge base in CI), and runs the
   real `install`/`activate`/`fetch` handlers against a fake `CacheStorage`.
-- `tests/unit/index-html.test.js` is static source tripwires only -- the game itself lives in
-  one inline module in `index.html` and can't be imported, so the game loop/rules are not
-  covered by tests. It also fails if a secret-shaped token (`sk_live_`, `whsec_`,
-  `sb_secret_`, `service_role`) ever appears in a browser-shipped file.
+- `tests/unit/rules.test.js` tests the game's rules, which live in `js/rules.js` as plain
+  functions (levels, scoring, shockwave/coin/jump tuning, hit detection, the coin-batch bonus
+  heart, wind gusts, burger spawning). Randomness is passed in as an `rng`, so tests script
+  exact outcomes. **To change a rule, change it there and update its test**; `index.html` only
+  holds state, input and drawing. The tests assert caps/floors/boundaries against the exported
+  constants, so retuning a number doesn't break them -- only values marked `pinned:` are literal.
+- `tests/unit/index-html.test.js` is static source tripwires -- the inline game script can't be
+  imported. Among others it fails if a new per-run state variable is added without being reset
+  in `resetGame()`, and if a secret-shaped token (`sk_live_`, `whsec_`, `sb_secret_`,
+  `service_role`) ever appears in a browser-shipped file. The game loop and drawing are still
+  untested; check those by playing.
 - `supabase/functions/{stripe-webhook,create-checkout}/handler.ts` hold the function logic so it can be tested;
   `index.ts` only wires real clients into it.
 - CI (`.github/workflows/test.yml`) runs all of the above on every push/PR to `main`.

@@ -124,3 +124,54 @@ describe('no server-side secret is shipped to the browser', () => {
     expect(key).toMatch(/^sb_publishable_/);
   });
 });
+
+describe('a new run starts from a clean slate', () => {
+  // The classic bug when adding a rule: a new piece of game state gets declared but never put
+  // back to its starting value in resetGame(), so it leaks from one run into the next. This
+  // reads the "state" section of the game script and requires every variable in it to be
+  // reset in resetGame() -- or to be listed below with the reason it deliberately isn't.
+  const stateStart = html.indexOf('// ---------- state ----------');
+  const stateEnd = html.indexOf('// ---------- background clouds');
+  const stateBlock = html.slice(stateStart, stateEnd);
+  const resetBody = blockAfter('function resetGame');
+
+  // `let a = 1, b = [];` -> ['a', 'b'] (comments stripped; the declarations here are all simple)
+  const lets = [...stateBlock.matchAll(/^ {2}let ([^;]+);/gm)]
+    .flatMap((m) => m[1].replace(/\/\/.*$/gm, '').split(',').map((d) => d.trim().split(/[\s=]/)[0]))
+    .filter(Boolean);
+  // stateful helper objects (createCoinBatches(), createWindGusts(...)) must have .reset() called
+  const objects = [...stateBlock.matchAll(/^ {2}const ([a-z]\w*) = create\w+\(/gm)].map((m) => m[1]);
+
+  // (the equipped-skin variables live above the state block: they come from the account profile, not the run)
+  const NOT_PER_RUN = {
+    running: 'toggled by the start / game-over / victory handlers, not by resetGame',
+    startTime: 'set by the start handler right after resetGame',
+    glowClock: 'free-running animation clock for the coin sparkle',
+    gustScreenAngle: 'only read while a gust is blowing and set whenever one starts',
+  };
+
+  it('finds the state block and resetGame (guards this test against the file being reorganised)', () => {
+    expect(stateStart).toBeGreaterThan(0);
+    expect(stateEnd).toBeGreaterThan(stateStart);
+    expect(lets.length).toBeGreaterThan(20);
+    expect(lets).toContain('score');
+    expect(lets).toContain('lives');
+    expect(objects).toEqual(expect.arrayContaining(['coinBatches', 'gusts']));
+  });
+
+  it.each(lets.filter((n) => !(n in NOT_PER_RUN)))('resetGame() resets `%s`', (name) => {
+    expect(resetBody, `${name} is declared in the state block but never assigned in resetGame() -- it will leak into the next run`).toMatch(
+      new RegExp(`(?<![\\w$.])${name}\\s*=(?!=)`),
+    );
+  });
+
+  it.each(objects)('resetGame() calls %s.reset()', (name) => {
+    expect(resetBody).toContain(`${name}.reset(`);
+  });
+
+  it('every exemption above still refers to a real variable (no stale entries)', () => {
+    for (const name of Object.keys(NOT_PER_RUN)) {
+      expect(lets, `${name} is exempted but no longer declared`).toContain(name);
+    }
+  });
+});
