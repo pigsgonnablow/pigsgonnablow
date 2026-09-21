@@ -41,6 +41,14 @@ export const DRAGON_BASE_SIZE = 42;
 export const DRAGON_GROWTH_CAP = 0.9;             // max +90% size (nearly double)
 export const DRAGON_GROWTH_PER_EXPLOSION = 0.15;  // dragon steps up 15% bigger each time the pig blows
 
+export const GOLDEN_CHANCE = 0.25;             // chance a spawning burger is golden (once eligible)
+export const START_GROUND_BURGERS = 3;
+export const MAX_GROUND_BURGERS = 4;           // no new burgers spawn while this many are lying around
+export const BURGER_SPAWN_BASE_FRAMES = 60;    // next spawn in 60..120 frames
+export const BURGER_SPAWN_JITTER_FRAMES = 60;
+export const BURGER_SPAWN_PIG_CLEARANCE = 110; // burgers try not to appear this close to the pig
+export const BURGER_SPAWN_TRIES = 20;
+
 export const COOLDOWN_FRAMES = 40;       // pause after a shockwave before the pig can be fed again
 export const HIT_INVULN_FRAMES = 90;     // grace period after taking a hit
 export const SHOCK_HIT_BAND = 26;        // how far inside the wavefront still counts as "in the ring"
@@ -154,6 +162,85 @@ export function pigVisualScale({ feedProgress, feedPunch, jumping, airHeight }) 
 // and the pig is idle (not mid-jump, exploding or cooling down).
 export const canThrow = ({ running, carrying, pigState, coins }) =>
   running && carrying && pigState === 'idle' && coins >= BURGER_THROW_COST;
+
+// ---------- burgers ----------
+// Where a new ground burger goes: uniformly in the lower part of the field, retried (up to
+// BURGER_SPAWN_TRIES times) if it lands too near the pig, then accepted as-is.
+export function pickBurgerSpot(pig, W, H, rng) {
+  const rand = (a, b) => a + rng() * (b - a);
+  let x, y, tries = 0;
+  do {
+    x = rand(40, W - 40);
+    y = rand(H * 0.46, H - 60);
+    tries++;
+  } while (Math.hypot(x - pig.x, y - pig.y) < BURGER_SPAWN_PIG_CLEARANCE && tries < BURGER_SPAWN_TRIES);
+  return { x, y };
+}
+
+// Golden burgers (double feed progress, triple score) are gated behind GOLDEN_BURGER_LEVEL so
+// the first couple of levels stay simple, and capped at one on the field at a time so they stay
+// a nice find rather than the new normal. `groundBurgers` is the burgers currently lying around.
+export const rollGolden = (level, groundBurgers, rng) =>
+  level >= GOLDEN_BURGER_LEVEL && !groundBurgers.some((b) => b.golden) && rng() < GOLDEN_CHANCE;
+
+// A new burger appears when the spawn timer has run out, there's room, and the pig isn't mid-blast.
+export const shouldSpawnBurger = ({ spawnTimer, groundCount, pigState }) =>
+  spawnTimer <= 0 && groundCount < MAX_GROUND_BURGERS && pigState !== 'exploding';
+
+export const nextSpawnDelay = (rng) => BURGER_SPAWN_BASE_FRAMES + rng() * BURGER_SPAWN_JITTER_FRAMES;
+
+// ---------- wind ----------
+// From WIND_GUST_LEVEL on, a periodic shove on top of player input: strong enough to fight the
+// joystick but not so strong it overrides it outright. A gust can only START while the pig is
+// idle or cooling down (so the dodge stays purely about the pig), but one already blowing carries on.
+//
+//   reset()                      new run: first gust in 300..480 frames, none active
+//   update({level, pigState}, frameScale) -> { gusting, pushX, pushY, ended, started }
+//        one frame. `gusting`: a gust is blowing this frame (apply pushX/pushY to the dragon,
+//        show the indicator); `ended`: it just finished (next gust in 360..600 frames);
+//        `started`: a new gust was rolled this frame (read `angle`/`arrow`).
+//   active / arrow / angle       frames left in the current gust (0 = none), its compass glyph
+//                                and its world-space direction in radians
+export function createWindGusts(rng) {
+  const rand = (a, b) => a + rng() * (b - a);
+  let timer = 0, active = 0, vx = 0, vy = 0, arrow = '', angle = 0;
+
+  return {
+    reset() {
+      timer = rand(300, 480);
+      active = 0;
+      vx = 0; vy = 0;
+    },
+    update({ level, pigState }, frameScale) {
+      const out = { gusting: false, pushX: 0, pushY: 0, ended: false, started: false };
+      if (level < WIND_GUST_LEVEL) return out;
+      if (active > 0) {
+        active -= frameScale;
+        out.gusting = true;
+        out.pushX = vx * frameScale;
+        out.pushY = vy * frameScale;
+        if (active <= 0) {
+          out.ended = true;
+          timer = rand(360, 600);
+        }
+      } else if (pigState === 'idle' || pigState === 'cooldown') {
+        timer -= frameScale;
+        if (timer <= 0) {
+          angle = rand(0, Math.PI * 2);
+          active = rand(90, 150);
+          vx = Math.cos(angle) * GUST_STRENGTH;
+          vy = Math.sin(angle) * GUST_STRENGTH;
+          arrow = angleToArrow(angle);
+          out.started = true;
+        }
+      }
+      return out;
+    },
+    get active() { return active; },
+    get arrow() { return arrow; },
+    get angle() { return angle; },
+  };
+}
 
 // ---------- presentation helpers ----------
 // m:ss.s, e.g. 83400 -> "1:23.4"

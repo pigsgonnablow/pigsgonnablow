@@ -299,10 +299,11 @@ import { createShop } from './js/shop.js';
 import { createMySkins } from './js/myskins.js';
 import {
   START_LIVES, MAX_LIVES, START_BURGERS_TO_FULL, BURGER_THROW_COST,
-  GOLDEN_BURGER_LEVEL, WIND_GUST_LEVEL, GUST_STRENGTH,
+  START_GROUND_BURGERS,
   JUMP_DURATION_BASE, SHOCK_RADIUS_BASE, SHOCK_SPEED_BASE, COIN_LIFE_FRAMES, DRAGON_BASE_SIZE, COIN_SCORE,
   COOLDOWN_FRAMES, HIT_INVULN_FRAMES,
   shockHits, knockedBack, jumpTarget, jumpPosition, canThrow, pigVisualScale as pigScaleFor,
+  pickBurgerSpot, rollGolden, shouldSpawnBurger, nextSpawnDelay, createWindGusts,
   createCoinBatches, levelFor, isVictory, dragonSizeFor, shockParamsFor, coinLifeFramesFor, jumpDurationFor,
   burgersToFullFor, coinCountFor, feedReward, formatTime, angleToArrow
 } from './js/rules.js';
@@ -502,10 +503,7 @@ import {
   let level = 1;
   let wonGame = false;
   let carryingGolden = false;
-  let gustTimer = 0;       // frames until the next gust can start
-  let gustActive = 0;      // frames remaining in the current gust, 0 = none
-  let gustVx = 0, gustVy = 0;
-  let gustArrow = '';
+  const gusts = createWindGusts(Math.random); // wind gust state machine, see js/rules.js
   let gustScreenAngle = 0; // gust direction converted to screen space, for the on-canvas arrow/streaks
   let windStreaks = []; // drifting speed-line particles, purely visual, spawned while a gust is active
   let windLeaves = []; // tumbling leaf debris blown across the ground, purely visual
@@ -862,9 +860,7 @@ import {
     level = 1;
     wonGame = false;
     carryingGolden = false;
-    gustTimer = rand(300,480);
-    gustActive = 0;
-    gustVx = 0; gustVy = 0;
+    gusts.reset();
     windStreaks = [];
     windLeaves = [];
     windSwooshes = [];
@@ -880,22 +876,15 @@ import {
     updateDragonSize();
     pig.x = W/2; pig.y = H*0.32;
     spawnTimer = 0;
-    for(let i=0;i<3;i++) spawnGroundBurger();
+    for(let i=0;i<START_GROUND_BURGERS;i++) spawnGroundBurger();
     updateHud();
   }
 
   function spawnGroundBurger(){
-    let x,y;
-    let tries = 0;
-    do {
-      x = rand(40, W-40);
-      y = rand(H*0.46, H-60);
-      tries++;
-    } while (dist(x,y,pig.x,pig.y) < 110 && tries < 20);
-    // Golden burgers are worth double feed progress and score -- gated behind
-    // GOLDEN_BURGER_LEVEL so the first couple levels stay simple, and capped at one
-    // on the field at a time so they stay a nice find rather than the new normal.
-    const golden = level >= GOLDEN_BURGER_LEVEL && !groundBurgers.some(b => b.golden) && Math.random() < 0.25;
+    const {x,y} = pickBurgerSpot(pig, W, H, Math.random);
+    // Golden burgers are worth double feed progress and score -- see rollGolden in js/rules.js
+    // for when they can appear.
+    const golden = rollGolden(level, groundBurgers, Math.random);
     groundBurgers.push({x,y,bob:Math.random()*Math.PI*2, golden});
   }
 
@@ -1170,38 +1159,27 @@ import {
     // --- wind gusts (from WIND_GUST_LEVEL): a periodic shove on top of player input,
     // strong enough to fight the joystick but not so strong it overrides it outright.
     // Held off during the jump/explosion beat so the dodge stays purely about the pig.
-    if (level >= WIND_GUST_LEVEL){
-      if (gustActive > 0){
-        gustActive -= frameScale;
-        dragon.x += gustVx*frameScale;
-        dragon.y += gustVy*frameScale;
-        windIndicatorEl.classList.remove('hidden');
-        windIndicatorEl.textContent = '💨 WIND ' + gustArrow;
-        if (Math.random() < 1.4*frameScale) spawnWindStreak();
-        if (Math.random() < 0.35*frameScale) spawnWindLeaf();
-        if (Math.random() < 0.5*frameScale) spawnWindSwoosh();
-        dragonTrail.push({x:dragon.x, y:dragon.y});
-        if (dragonTrail.length > 12) dragonTrail.shift();
-        if (gustActive <= 0){
-          windIndicatorEl.classList.add('hidden');
-          gustTimer = rand(360,600);
-        }
-      } else if (pigState === 'idle' || pigState === 'cooldown'){
-        gustTimer -= frameScale;
-        if (gustTimer <= 0){
-          const a = rand(0, Math.PI*2);
-          gustActive = rand(90,150);
-          gustVx = Math.cos(a)*GUST_STRENGTH; gustVy = Math.sin(a)*GUST_STRENGTH;
-          gustArrow = angleToArrow(a);
-          // Iso projection is a fixed linear transform, so a direction converts to screen
-          // space the same way regardless of where it's measured from -- (0,0) is as good
-          // an anchor as the dragon's position for finding the on-screen push angle.
-          const d0 = worldToScreen(0,0), d1 = worldToScreen(Math.cos(a)*10, Math.sin(a)*10);
-          gustScreenAngle = Math.atan2(d1.sy-d0.sy, d1.sx-d0.sx);
-        }
-      }
+    const gust = gusts.update({ level, pigState }, frameScale);
+    if (gust.gusting){
+      dragon.x += gust.pushX;
+      dragon.y += gust.pushY;
+      windIndicatorEl.classList.remove('hidden');
+      windIndicatorEl.textContent = '💨 WIND ' + gusts.arrow;
+      if (Math.random() < 1.4*frameScale) spawnWindStreak();
+      if (Math.random() < 0.35*frameScale) spawnWindLeaf();
+      if (Math.random() < 0.5*frameScale) spawnWindSwoosh();
+      dragonTrail.push({x:dragon.x, y:dragon.y});
+      if (dragonTrail.length > 12) dragonTrail.shift();
+      if (gust.ended) windIndicatorEl.classList.add('hidden');
+    } else if (gust.started){
+      // Iso projection is a fixed linear transform, so a direction converts to screen
+      // space the same way regardless of where it's measured from -- (0,0) is as good
+      // an anchor as the dragon's position for finding the on-screen push angle.
+      const a = gusts.angle;
+      const d0 = worldToScreen(0,0), d1 = worldToScreen(Math.cos(a)*10, Math.sin(a)*10);
+      gustScreenAngle = Math.atan2(d1.sy-d0.sy, d1.sx-d0.sx);
     }
-    if (gustActive <= 0 && dragonTrail.length) dragonTrail.shift(); // drain the smear out once the gust ends
+    if (gusts.active <= 0 && dragonTrail.length) dragonTrail.shift(); // drain the smear out once the gust ends
     dragon.x = Math.max(dragon.size*0.5, Math.min(W-dragon.size*0.5, dragon.x));
     dragon.y = Math.max(dragon.size*0.5, Math.min(H-dragon.size*0.5, dragon.y));
 
@@ -1398,9 +1376,9 @@ import {
 
     // --- spawn new ground burgers ---
     spawnTimer -= frameScale;
-    if (spawnTimer <= 0 && groundBurgers.length < 4 && pigState !== 'exploding'){
+    if (shouldSpawnBurger({ spawnTimer, groundCount: groundBurgers.length, pigState })){
       spawnGroundBurger();
-      spawnTimer = 60 + Math.random()*60;
+      spawnTimer = nextSpawnDelay(Math.random);
     }
 
     updateClouds(frameScale);
@@ -1841,7 +1819,7 @@ import {
   // A pulsing arrow parked just off the dragon, rotated to point the way the current gust
   // is pushing -- the HUD's "💨 WIND ➡️" text alone was too easy to miss mid-dodge.
   function drawWindArrow(){
-    if (gustActive <= 0) return;
+    if (gusts.active <= 0) return;
     const scr = worldToScreen(dragon.x, dragon.y);
     const pulse = 1 + Math.sin(glowClock*4)*0.15;
     const offset = dragon.size*0.95;

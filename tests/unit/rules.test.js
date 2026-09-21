@@ -414,3 +414,189 @@ describe('pinned combat feel', () => {
     expect(R.COOLDOWN_FRAMES).toBe(40);
   });
 });
+
+// A scripted random source: returns the given values in order, then repeats the last one.
+const scripted = (...vals) => {
+  let i = 0;
+  return () => vals[Math.min(i++, vals.length - 1)];
+};
+
+describe('ground burgers', () => {
+  const W = 600, H = 1000, pig = { x: 300, y: 320 };
+
+  it('picks a spot in the lower field, clear of the pig', () => {
+    let seed = 7;
+    const rng = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296);
+    for (let i = 0; i < 500; i++) {
+      const { x, y } = R.pickBurgerSpot(pig, W, H, rng);
+      expect(x).toBeGreaterThanOrEqual(40);
+      expect(x).toBeLessThanOrEqual(W - 40);
+      expect(y).toBeGreaterThanOrEqual(H * 0.46);
+      expect(y).toBeLessThanOrEqual(H - 60);
+      expect(Math.hypot(x - pig.x, y - pig.y)).toBeGreaterThanOrEqual(R.BURGER_SPAWN_PIG_CLEARANCE);
+    }
+  });
+  it('retries a spot that is too close to the pig', () => {
+    // first try: x = 40 + 0.5*(W-80) = 300, y = H*0.46 -> exactly on the pig; second try is the far corner
+    const onPig = { x: 300, y: H * 0.46 };
+    const rng = scripted(0.5, 0, 0, 1);
+    expect(R.pickBurgerSpot(onPig, W, H, rng)).toEqual({ x: 40, y: H - 60 });
+  });
+  it('gives up after BURGER_SPAWN_TRIES and accepts the last spot rather than looping forever', () => {
+    const blocker = { x: 300, y: 700 };
+    // every try produces exactly the pig's own position: x = 300, y = 700
+    const x01 = (300 - 40) / (W - 80);
+    const y01 = (700 - H * 0.46) / (H - 60 - H * 0.46);
+    let calls = 0;
+    const rng = () => (calls++ % 2 === 0 ? x01 : y01);
+    const spot = R.pickBurgerSpot(blocker, W, H, rng);
+    expect(calls).toBe(R.BURGER_SPAWN_TRIES * 2);
+    expect(spot.x).toBeCloseTo(300);
+    expect(spot.y).toBeCloseTo(700);
+  });
+
+  it('golden burgers only appear from the golden level on', () => {
+    for (const level of range(R.GOLDEN_BURGER_LEVEL)) expect(R.rollGolden(level, [], () => 0)).toBe(false);
+    expect(R.rollGolden(R.GOLDEN_BURGER_LEVEL, [], () => 0)).toBe(true);
+    expect(R.rollGolden(R.GOLDEN_BURGER_LEVEL + 10, [], () => 0)).toBe(true);
+  });
+  it('...at the configured chance, exclusive of the threshold', () => {
+    expect(R.rollGolden(9, [], () => R.GOLDEN_CHANCE - 1e-9)).toBe(true);
+    expect(R.rollGolden(9, [], () => R.GOLDEN_CHANCE)).toBe(false);
+    expect(R.rollGolden(9, [], () => 0.99)).toBe(false);
+  });
+  it('...and never a second one while a golden burger is still lying around', () => {
+    expect(R.rollGolden(9, [{ golden: false }, { golden: true }], () => 0)).toBe(false);
+    expect(R.rollGolden(9, [{ golden: false }, { golden: false }], () => 0)).toBe(true);
+  });
+
+  it('spawns when the timer is up, there is room, and the pig is not mid-blast', () => {
+    const ok = { spawnTimer: 0, groundCount: R.MAX_GROUND_BURGERS - 1, pigState: 'idle' };
+    expect(R.shouldSpawnBurger(ok)).toBe(true);
+    expect(R.shouldSpawnBurger({ ...ok, spawnTimer: -5 })).toBe(true);
+    expect(R.shouldSpawnBurger({ ...ok, spawnTimer: 0.1 })).toBe(false);
+    expect(R.shouldSpawnBurger({ ...ok, groundCount: R.MAX_GROUND_BURGERS })).toBe(false);
+    expect(R.shouldSpawnBurger({ ...ok, pigState: 'exploding' })).toBe(false);
+    for (const pigState of ['idle', 'jumping', 'cooldown']) expect(R.shouldSpawnBurger({ ...ok, pigState })).toBe(true);
+  });
+  it('the next spawn is 60..120 frames away', () => {
+    expect(R.nextSpawnDelay(() => 0)).toBe(R.BURGER_SPAWN_BASE_FRAMES);
+    expect(R.nextSpawnDelay(() => 0.999999)).toBeLessThan(R.BURGER_SPAWN_BASE_FRAMES + R.BURGER_SPAWN_JITTER_FRAMES);
+  });
+  it('pinned: a run opens with 3 burgers on the field, at most 4 at a time', () => {
+    expect(R.START_GROUND_BURGERS).toBe(3);
+    expect(R.MAX_GROUND_BURGERS).toBe(4);
+  });
+});
+
+describe('wind gusts', () => {
+  const idle = { level: R.WIND_GUST_LEVEL, pigState: 'idle' };
+  // rng() === 0 makes every rand(a,b) return exactly `a`: first gust after 300 frames, angle 0
+  // (east), 90 frames long, then a 360-frame lull.
+  const make = (rng = () => 0) => {
+    const g = R.createWindGusts(rng);
+    g.reset();
+    return g;
+  };
+  const run = (g, n, state = idle, fs = 1) => range(n).map(() => g.update(state, fs));
+
+  it('never blows below the wind level, however long you wait', () => {
+    const g = make();
+    for (const o of run(g, 5000, { level: R.WIND_GUST_LEVEL - 1, pigState: 'idle' })) {
+      expect(o).toEqual({ gusting: false, pushX: 0, pushY: 0, ended: false, started: false });
+    }
+    expect(g.active).toBe(0);
+  });
+
+  it('the first gust starts after the opening delay, not before', () => {
+    const g = make();
+    const early = run(g, 299);
+    expect(early.some((o) => o.started)).toBe(false);
+    expect(g.update(idle, 1).started).toBe(true); // 300th frame
+  });
+
+  it('a started gust pushes at GUST_STRENGTH in its direction for its whole duration, then ends', () => {
+    const g = make(); // angle 0 (east), 90 frames
+    run(g, 300); // wait for it to start
+    expect(g.angle).toBe(0);
+    expect(g.arrow).toBe(R.COMPASS_ARROWS[0]);
+    const frames = run(g, 90);
+    expect(frames.every((o) => o.gusting)).toBe(true);
+    expect(frames.every((o) => o.pushX === R.GUST_STRENGTH && o.pushY === 0)).toBe(true);
+    expect(frames.slice(0, -1).some((o) => o.ended)).toBe(false);
+    expect(frames[89].ended).toBe(true);
+    expect(g.active).toBeLessThanOrEqual(0);
+    expect(g.update(idle, 1).gusting).toBe(false);
+  });
+
+  it('the push is scaled by frame time, and a slower frame rate covers the same duration in fewer frames', () => {
+    const g = make();
+    run(g, 150, idle, 2); // 300 game-frames of waiting at 2x
+    const frames = run(g, 45, idle, 2);
+    expect(frames.every((o) => o.gusting && o.pushX === R.GUST_STRENGTH * 2)).toBe(true);
+    expect(frames[44].ended).toBe(true);
+  });
+
+  it('wind direction follows the roll: angle -> velocity, arrow and unit strength', () => {
+    for (const [roll, arrowIdx] of [[0, 0], [0.125, 1], [0.25, 2], [0.5, 4], [0.75, 6]]) {
+      // reset() consumes one value (opening delay), then start consumes angle then duration
+      const g = R.createWindGusts(scripted(0, roll, 0));
+      g.reset();
+      run(g, 300);
+      const o = g.update(idle, 1);
+      expect(g.arrow).toBe(R.COMPASS_ARROWS[arrowIdx]);
+      expect(Math.hypot(o.pushX, o.pushY)).toBeCloseTo(R.GUST_STRENGTH);
+      const want = roll * Math.PI * 2;
+      expect(Math.cos(Math.atan2(o.pushY, o.pushX) - want)).toBeCloseTo(1);
+    }
+  });
+
+  it('a gust can only START while the pig is idle or cooling down -- the timer is frozen otherwise', () => {
+    for (const pigState of ['jumping', 'exploding']) {
+      const g = make();
+      const out = run(g, 5000, { level: 9, pigState });
+      expect(out.some((o) => o.started)).toBe(false);
+      // timer did not advance, so a full opening delay is still owed once the pig is idle again
+      expect(run(g, 299).some((o) => o.started)).toBe(false);
+      expect(g.update(idle, 1).started).toBe(true);
+    }
+    const cool = make();
+    run(cool, 299, { level: 9, pigState: 'cooldown' });
+    expect(cool.update({ level: 9, pigState: 'cooldown' }, 1).started).toBe(true);
+  });
+
+  it('but a gust already blowing carries on through the pig jump and blast', () => {
+    const g = make();
+    run(g, 300);
+    const during = run(g, 10, { level: 9, pigState: 'exploding' });
+    expect(during.every((o) => o.gusting)).toBe(true);
+  });
+
+  it('after a gust ends there is a 360..600 frame lull before the next', () => {
+    const g = make();
+    run(g, 300 + 90); // through the end of the first gust
+    expect(run(g, 359).some((o) => o.started)).toBe(false);
+    expect(g.update(idle, 1).started).toBe(true);
+    // and with the maximum roll it is 600
+    const g2 = R.createWindGusts(scripted(0, 0, 0, /* lull */ 0.999999));
+    g2.reset();
+    run(g2, 300 + 90);
+    expect(run(g2, 598).some((o) => o.started)).toBe(false);
+  });
+
+  it('reset (a new run) cancels a gust in progress and restarts the opening delay', () => {
+    const g = make();
+    run(g, 300);
+    expect(g.active).toBeGreaterThan(0);
+    g.reset();
+    expect(g.active).toBe(0);
+    expect(g.update(idle, 1).gusting).toBe(false);
+    expect(run(g, 298).some((o) => o.started)).toBe(false);
+  });
+
+  it('pinned: wind starts at level 5 and pushes 1.8px/frame', () => {
+    expect(R.WIND_GUST_LEVEL).toBe(5);
+    expect(R.GUST_STRENGTH).toBe(1.8);
+    expect(R.GOLDEN_BURGER_LEVEL).toBe(3);
+  });
+});

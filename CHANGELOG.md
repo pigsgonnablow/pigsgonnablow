@@ -29,6 +29,14 @@ comparing every value against the original formulas.
   hit, invulnerability, wall clamping, game over, landing on an edge-clamped target, throw
   gating). Cache `v24` -> `v25`.
 
+- **Stage 4 -- burgers and wind.** `pickBurgerSpot`, `rollGolden`, `shouldSpawnBurger`,
+  `nextSpawnDelay`, and the wind gust state machine as `createWindGusts(rng)` (`reset`/`update`;
+  only *starting* a gust is blocked while the pig jumps/explodes, one already blowing carries
+  on). Randomness is injected, so the tests script exact schedules. Verified against the
+  original with the same seeded random stream over ~4.9M comparisons, then in the real game
+  (no wind below level 5, a gust starting/pushing exactly 1.8px/frame/ending, indicator, a
+  frame drawn mid-gust, golden level gate and one-at-a-time, spawn cap). Cache `v25` -> `v26`.
+
 ## 2026-09-21 (more tests)
 
 A second pass over the test suite, filling the gaps the first one left. No production code
