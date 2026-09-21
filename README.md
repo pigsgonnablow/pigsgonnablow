@@ -25,7 +25,7 @@ The game itself has no build step, but there's dev-only test tooling (`npm insta
 ```
 npm test         # vitest: browser modules (jsdom), service worker, index.html tripwires,
                  #   and the supabase_*.sql files run against an in-process Postgres (PGlite)
-npm run test:fn  # Deno: the stripe-webhook handler with a faked Stripe + Supabase
+npm run test:fn  # Deno: the stripe-webhook and create-checkout handlers with a faked Stripe + Supabase
 npm run test:all
 ```
 
@@ -34,7 +34,7 @@ npm run test:all
   (the lockdown file must stay last).
 - `tests/unit/sw.test.js` fails if a file in `sw.js`'s `ASSETS` changed without a
   `CACHE_NAME` bump (compares against `HEAD` locally, the merge base in CI).
-- `supabase/functions/stripe-webhook/handler.ts` holds the webhook logic so it can be tested;
+- `supabase/functions/{stripe-webhook,create-checkout}/handler.ts` hold the function logic so it can be tested;
   `index.ts` only wires real clients into it.
 - CI (`.github/workflows/test.yml`) runs all of the above on every push/PR to `main`.
 
