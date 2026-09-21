@@ -275,3 +275,142 @@ describe('coin batches (clean sweep = bonus heart)', () => {
     expect(b.collect(id)).toBe(false); // ...and it can't be claimed again later
   });
 });
+
+describe('shockwave hit test', () => {
+  const pig = { x: 300, y: 300 };
+  const dragonAt = (d, angle = 0, size = 42) => ({ x: pig.x + Math.cos(angle) * d, y: pig.y + Math.sin(angle) * d, size });
+
+  it('the ring hurts within [radius - band, radius + half the dragon size], exclusive at both ends', () => {
+    const R0 = 200, size = 42;
+    expect(R.shockHits(dragonAt(R0 - R.SHOCK_HIT_BAND + 0.5, 0, size), pig, R0)).toBe(true);
+    expect(R.shockHits(dragonAt(R0 - R.SHOCK_HIT_BAND, 0, size), pig, R0)).toBe(false);
+    expect(R.shockHits(dragonAt(R0 + size / 2 - 0.5, 0, size), pig, R0)).toBe(true);
+    expect(R.shockHits(dragonAt(R0 + size / 2, 0, size), pig, R0)).toBe(false);
+  });
+  it('safe once the ring has passed (well inside it) and safe ahead of it (well outside)', () => {
+    expect(R.shockHits(dragonAt(50), pig, 200)).toBe(false);
+    expect(R.shockHits(dragonAt(400), pig, 200)).toBe(false);
+  });
+  it('a bigger dragon is a bigger target: it is hit by the front from further away', () => {
+    const d = 200 + 30; // 30px ahead of a radius-200 front
+    expect(R.shockHits(dragonAt(d, 0, 42), pig, 200)).toBe(false);
+    expect(R.shockHits(dragonAt(d, 0, 80), pig, 200)).toBe(true);
+  });
+  it('standing right under the pig when it lands is a hit on the first frames (radius ~0)', () => {
+    expect(R.shockHits(dragonAt(0), pig, 0)).toBe(true);
+    expect(R.shockHits(dragonAt(10), pig, 14)).toBe(true);
+  });
+  it('is direction-independent', () => {
+    for (const a of range(16).map((i) => (i * Math.PI) / 8)) {
+      expect(R.shockHits(dragonAt(190, a), pig, 200)).toBe(true);
+      expect(R.shockHits(dragonAt(60, a), pig, 200)).toBe(false);
+    }
+  });
+});
+
+describe('knockback', () => {
+  const W = 600, H = 1000, pig = { x: 300, y: 300 };
+  it('shoves the dragon KNOCKBACK px straight away from the pig', () => {
+    const k = R.knockedBack({ x: 400, y: 300, size: 42 }, pig, W, H);
+    expect(k.x).toBeCloseTo(400 + R.KNOCKBACK);
+    expect(k.y).toBeCloseTo(300);
+    const up = R.knockedBack({ x: 300, y: 200, size: 42 }, pig, W, H);
+    expect(up.x).toBeCloseTo(300);
+    expect(up.y).toBeCloseTo(200 - R.KNOCKBACK);
+  });
+  it('the push has length exactly KNOCKBACK on a diagonal too', () => {
+    const k = R.knockedBack({ x: 350, y: 350, size: 42 }, pig, W, H);
+    expect(Math.hypot(k.x - 350, k.y - 350)).toBeCloseTo(R.KNOCKBACK);
+  });
+  it('is kept inside the field, by half the dragon size', () => {
+    const size = 60;
+    expect(R.knockedBack({ x: 590, y: 300, size }, pig, W, H).x).toBe(W - size / 2);
+    expect(R.knockedBack({ x: 10, y: 300, size }, { x: 300, y: 300 }, W, H).x).toBe(size / 2);
+    expect(R.knockedBack({ x: 300, y: 995, size }, pig, W, H).y).toBe(H - size / 2);
+    expect(R.knockedBack({ x: 300, y: 5, size }, { x: 300, y: 300 }, W, H).y).toBe(size / 2);
+  });
+  it('exactly on top of the pig there is no "away", so it goes +x rather than NaN', () => {
+    const k = R.knockedBack({ x: 300, y: 300, size: 42 }, pig, W, H);
+    expect(k.x).toBeCloseTo(300 + R.KNOCKBACK);
+    expect(Number.isNaN(k.y)).toBe(false);
+  });
+});
+
+describe('the pig jump', () => {
+  const W = 600, H = 1000;
+  it('lands where the dragon stood at launch...', () => {
+    expect(R.jumpTarget({ x: 250, y: 700 }, W, H)).toEqual({ x: 250, y: 700 });
+  });
+  it('...but never on the very edge of the field', () => {
+    expect(R.jumpTarget({ x: 5, y: 700 }, W, H).x).toBe(R.JUMP_TARGET_MARGIN_X);
+    expect(R.jumpTarget({ x: 595, y: 700 }, W, H).x).toBe(W - R.JUMP_TARGET_MARGIN_X);
+    expect(R.jumpTarget({ x: 250, y: 10 }, W, H).y).toBe(H * R.JUMP_TARGET_MIN_Y);
+    expect(R.jumpTarget({ x: 250, y: 990 }, W, H).y).toBe(H - R.JUMP_TARGET_BOTTOM_MARGIN);
+  });
+  it('flies from start to target with an arc that peaks at the halfway point and is flat at both ends', () => {
+    const a = { x: 100, y: 200 }, b = { x: 500, y: 800 }, D = 60;
+    const at = (timer) => R.jumpPosition(a, b, timer, D);
+    expect(at(D)).toMatchObject({ x: 100, y: 200 });
+    expect(at(D).airHeight).toBeCloseTo(0);
+    expect(at(D / 2)).toMatchObject({ x: 300, y: 500 });
+    expect(at(D / 2).airHeight).toBeCloseTo(R.JUMP_ARC_HEIGHT);
+    expect(at(0)).toMatchObject({ x: 500, y: 800 });
+    expect(at(0).airHeight).toBeCloseTo(0);
+  });
+  it('a timer that has overshot below zero clamps to the landing rather than flying past it', () => {
+    const p = R.jumpPosition({ x: 0, y: 0 }, { x: 100, y: 100 }, -25, 60);
+    expect(p.x).toBe(100);
+    expect(p.y).toBe(100);
+  });
+  it('gets there in `duration` frames regardless of how long that is', () => {
+    for (const D of [45, 75]) {
+      const mid = R.jumpPosition({ x: 0, y: 0 }, { x: 100, y: 0 }, D / 2, D);
+      expect(mid.x).toBeCloseTo(50);
+    }
+  });
+});
+
+describe('pig visual scale (drawn size = hit reach)', () => {
+  const base = { feedProgress: 0, feedPunch: 0, jumping: false, airHeight: 0 };
+  it('is exactly 1 for an unfed idle pig', () => {
+    expect(R.pigVisualScale(base)).toBe(1);
+  });
+  it('grows with feeding, with the just-fed punch, and at the top of the jump', () => {
+    expect(R.pigVisualScale({ ...base, feedProgress: 5 })).toBeCloseTo(1.6);
+    expect(R.pigVisualScale({ ...base, feedPunch: 1 })).toBeCloseTo(1.2);
+    expect(R.pigVisualScale({ ...base, jumping: true, airHeight: R.JUMP_ARC_HEIGHT })).toBeCloseTo(1.25);
+  });
+  it('air height only matters while jumping', () => {
+    expect(R.pigVisualScale({ ...base, jumping: false, airHeight: R.JUMP_ARC_HEIGHT })).toBe(1);
+  });
+  it('the effects multiply', () => {
+    const s = R.pigVisualScale({ feedProgress: 5, feedPunch: 1, jumping: true, airHeight: R.JUMP_ARC_HEIGHT });
+    expect(s).toBeCloseTo(1.6 * 1.2 * 1.25);
+  });
+});
+
+describe('throwing a burger', () => {
+  const ready = { running: true, carrying: true, pigState: 'idle', coins: R.BURGER_THROW_COST };
+  it('needs a running game, a carried burger, an idle pig and enough coins -- all four', () => {
+    expect(R.canThrow(ready)).toBe(true);
+    expect(R.canThrow({ ...ready, running: false })).toBe(false);
+    expect(R.canThrow({ ...ready, carrying: false })).toBe(false);
+    expect(R.canThrow({ ...ready, coins: R.BURGER_THROW_COST - 1 })).toBe(false);
+    for (const pigState of ['jumping', 'exploding', 'cooldown']) {
+      expect(R.canThrow({ ...ready, pigState })).toBe(false);
+    }
+  });
+  it('coins beyond the cost are fine', () => {
+    expect(R.canThrow({ ...ready, coins: 99 })).toBe(true);
+  });
+  it('pinned: a throw costs 4 coins', () => {
+    expect(R.BURGER_THROW_COST).toBe(4);
+  });
+});
+
+describe('pinned combat feel', () => {
+  it('the dragon is invulnerable for 1.5s (90 frames) after a hit and the cooldown is 40 frames', () => {
+    expect(R.HIT_INVULN_FRAMES).toBe(90);
+    expect(R.COOLDOWN_FRAMES).toBe(40);
+  });
+});

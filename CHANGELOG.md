@@ -22,6 +22,13 @@ comparing every value against the original formulas.
   regain, sweep at full lives, one expired coin ruining a batch, overlapping batches).
   Cache `v23` -> `v24`.
 
+- **Stage 3 -- combat and the pig's jump.** `shockHits` (the ring hit test), `knockedBack`,
+  `jumpTarget`/`jumpPosition` (where the pig lands and its arc), `pigVisualScale` (drawn size =
+  hit reach) and `canThrow`, plus the cooldown/invulnerability/knockback constants. Verified
+  identical to the original over 1.2M randomized comparisons, then in the real game (getting
+  hit, invulnerability, wall clamping, game over, landing on an edge-clamped target, throw
+  gating). Cache `v24` -> `v25`.
+
 ## 2026-09-21 (more tests)
 
 A second pass over the test suite, filling the gaps the first one left. No production code

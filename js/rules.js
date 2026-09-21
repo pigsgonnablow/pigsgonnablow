@@ -41,6 +41,15 @@ export const DRAGON_BASE_SIZE = 42;
 export const DRAGON_GROWTH_CAP = 0.9;             // max +90% size (nearly double)
 export const DRAGON_GROWTH_PER_EXPLOSION = 0.15;  // dragon steps up 15% bigger each time the pig blows
 
+export const COOLDOWN_FRAMES = 40;       // pause after a shockwave before the pig can be fed again
+export const HIT_INVULN_FRAMES = 90;     // grace period after taking a hit
+export const SHOCK_HIT_BAND = 26;        // how far inside the wavefront still counts as "in the ring"
+export const KNOCKBACK = 40;             // px the dragon is shoved away from the pig when hit
+export const JUMP_ARC_HEIGHT = 110;      // visual peak height of the pig's jump, px
+export const JUMP_TARGET_MARGIN_X = 50;  // the pig never lands closer than this to a side wall
+export const JUMP_TARGET_MIN_Y = 0.3;    // ...or above this fraction of the field height
+export const JUMP_TARGET_BOTTOM_MARGIN = 70;
+
 export const FEED_PROGRESS = { normal: 1, golden: 2 };
 export const FEED_SCORE = { normal: 10, golden: 30 };
 export const COIN_SCORE = 15;
@@ -92,6 +101,59 @@ export const feedReward = (golden) => ({
   progress: golden ? FEED_PROGRESS.golden : FEED_PROGRESS.normal,
   score: golden ? FEED_SCORE.golden : FEED_SCORE.normal,
 });
+
+// ---------- combat ----------
+// Is the dragon caught by the shockwave right now? The wave is a ring: you're hit if you're
+// within the front edge (radius + half your size) but not so far inside it that it's already
+// passed you (SHOCK_HIT_BAND) -- so standing still where the pig lands hurts, and so does
+// being caught by the front, but running back inside a ring that's gone by is safe.
+export function shockHits(dragon, pig, shockRadius) {
+  const d = Math.hypot(dragon.x - pig.x, dragon.y - pig.y);
+  return d < shockRadius + dragon.size * 0.5 && d > shockRadius - SHOCK_HIT_BAND;
+}
+
+// Where the dragon ends up after being hit: shoved KNOCKBACK px straight away from the pig,
+// then kept inside the field. (Exactly on top of the pig there's no "away", so it's +x.)
+export function knockedBack(dragon, pig, W, H) {
+  const a = Math.atan2(dragon.y - pig.y, dragon.x - pig.x);
+  const half = dragon.size * 0.5;
+  return {
+    x: Math.max(half, Math.min(W - half, dragon.x + Math.cos(a) * KNOCKBACK)),
+    y: Math.max(half, Math.min(H - half, dragon.y + Math.sin(a) * KNOCKBACK)),
+  };
+}
+
+// The pig jumps to where the dragon is standing when it launches, but never onto the very
+// edge of the field.
+export function jumpTarget(dragon, W, H) {
+  return {
+    x: Math.max(JUMP_TARGET_MARGIN_X, Math.min(W - JUMP_TARGET_MARGIN_X, dragon.x)),
+    y: Math.max(H * JUMP_TARGET_MIN_Y, Math.min(H - JUMP_TARGET_BOTTOM_MARGIN, dragon.y)),
+  };
+}
+
+// The pig's position part-way through its jump: straight line from start to target over
+// `duration` frames, with a sine arc for height. `timer` counts down from `duration` to 0.
+export function jumpPosition(start, target, timer, duration) {
+  const t = 1 - Math.max(timer, 0) / duration;
+  return {
+    x: start.x + (target.x - start.x) * t,
+    y: start.y + (target.y - start.y) * t,
+    airHeight: Math.sin(t * Math.PI) * JUMP_ARC_HEIGHT,
+  };
+}
+
+// The pig visibly puffs up as it's fed (up to +60% at max feedProgress), again when it's just
+// been fed (`feedPunch`, 1 -> 0), and mid-jump. Used by both rendering and hit-testing so the
+// "reach" matches what's drawn.
+export function pigVisualScale({ feedProgress, feedPunch, jumping, airHeight }) {
+  return (1 + feedProgress * 0.12) * (1 + feedPunch * 0.2) * (jumping ? 1 + (airHeight / JUMP_ARC_HEIGHT) * 0.25 : 1);
+}
+
+// A burger can be thrown while carrying one, with coins to pay for it, once the run is going
+// and the pig is idle (not mid-jump, exploding or cooling down).
+export const canThrow = ({ running, carrying, pigState, coins }) =>
+  running && carrying && pigState === 'idle' && coins >= BURGER_THROW_COST;
 
 // ---------- presentation helpers ----------
 // m:ss.s, e.g. 83400 -> "1:23.4"

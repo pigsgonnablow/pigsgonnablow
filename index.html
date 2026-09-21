@@ -301,6 +301,8 @@ import {
   START_LIVES, MAX_LIVES, START_BURGERS_TO_FULL, BURGER_THROW_COST,
   GOLDEN_BURGER_LEVEL, WIND_GUST_LEVEL, GUST_STRENGTH,
   JUMP_DURATION_BASE, SHOCK_RADIUS_BASE, SHOCK_SPEED_BASE, COIN_LIFE_FRAMES, DRAGON_BASE_SIZE, COIN_SCORE,
+  COOLDOWN_FRAMES, HIT_INVULN_FRAMES,
+  shockHits, knockedBack, jumpTarget, jumpPosition, canThrow, pigVisualScale as pigScaleFor,
   createCoinBatches, levelFor, isVictory, dragonSizeFor, shockParamsFor, coinLifeFramesFor, jumpDurationFor,
   burgersToFullFor, coinCountFor, feedReward, formatTime, angleToArrow
 } from './js/rules.js';
@@ -711,7 +713,6 @@ import {
     x: W/2, y: H*0.32, baseSize: 60, wobble:0, feedPunch:0,
     jumpStartX:0, jumpStartY:0, targetX:0, targetY:0, airHeight:0
   };
-  const JUMP_ARC_HEIGHT = 110; // visual peak height of the jump, px
 
 
   // faceX: -1 = facing screen-left, 1 = facing screen-right. Kept separately from `facing`
@@ -981,12 +982,12 @@ import {
   }
 
   function updateThrowBtn(){
-    const ready = running && carrying && pigState === 'idle' && coins >= BURGER_THROW_COST;
+    const ready = canThrow({ running, carrying, pigState, coins });
     if (ready) throwBtn.classList.remove('hidden');
     else throwBtn.classList.add('hidden');
   }
   function throwBurger(){
-    if (!running || !carrying || pigState !== 'idle' || coins < BURGER_THROW_COST) return;
+    if (!canThrow({ running, carrying, pigState, coins })) return;
     carrying = false;
     const golden = carryingGolden;
     carryingGolden = false;
@@ -1032,7 +1033,7 @@ import {
   // The pig visibly puffs up as it's fed (up to +60% at max feedProgress) and again
   // mid-jump — used by both rendering and hit-testing so the "reach" matches what's drawn.
   function pigVisualScale(){
-    return (1 + feedProgress*0.12) * (1 + pig.feedPunch*0.2) * (pigState==='jumping' ? 1 + (pig.airHeight/JUMP_ARC_HEIGHT)*0.25 : 1);
+    return pigScaleFor({ feedProgress, feedPunch: pig.feedPunch, jumping: pigState==='jumping', airHeight: pig.airHeight });
   }
 
   // Shared by the walk-in feed and the thrown-burger hit — both count as "successfully
@@ -1052,8 +1053,9 @@ import {
       jumpDuration = jumpDurationFor(level);
       jumpTimer = jumpDuration;
       pig.jumpStartX = pig.x; pig.jumpStartY = pig.y;
-      pig.targetX = Math.max(50, Math.min(W-50, dragon.x));
-      pig.targetY = Math.max(H*0.3, Math.min(H-70, dragon.y));
+      const target = jumpTarget(dragon, W, H);
+      pig.targetX = target.x;
+      pig.targetY = target.y;
       bonusMsgTimer = 0; // cancel any pending level-up/bonus banner -- the jump warning takes priority
       warningEl.textContent = "PIG'S GONNA BLOW!";
       warningEl.style.display = 'block';
@@ -1063,17 +1065,14 @@ import {
 
   function checkPlayerHit(){
     if (invuln > 0) return;
-    const d = dist(dragon.x, dragon.y, pig.x, pig.y);
-    if (d < shockRadius + dragon.size*0.5 && d > shockRadius - 26) {
+    if (shockHits(dragon, pig, shockRadius)) {
       lives -= 1;
-      invuln = 90;
+      invuln = HIT_INVULN_FRAMES;
       updateHud();
       sfxHit();
-      const a = Math.atan2(dragon.y-pig.y, dragon.x-pig.x);
-      dragon.x += Math.cos(a)*40;
-      dragon.y += Math.sin(a)*40;
-      dragon.x = Math.max(dragon.size*0.5, Math.min(W-dragon.size*0.5, dragon.x));
-      dragon.y = Math.max(dragon.size*0.5, Math.min(H-dragon.size*0.5, dragon.y));
+      const kb = knockedBack(dragon, pig, W, H);
+      dragon.x = kb.x;
+      dragon.y = kb.y;
       if (lives <= 0) endGame();
     }
   }
@@ -1258,10 +1257,10 @@ import {
     shakeTimer = Math.max(shakeTimer - frameScale, 0);
     if (pigState === 'jumping'){
       jumpTimer -= frameScale;
-      const t = 1 - Math.max(jumpTimer,0) / jumpDuration;
-      pig.x = pig.jumpStartX + (pig.targetX - pig.jumpStartX) * t;
-      pig.y = pig.jumpStartY + (pig.targetY - pig.jumpStartY) * t;
-      pig.airHeight = Math.sin(t * Math.PI) * JUMP_ARC_HEIGHT;
+      const pos = jumpPosition({x:pig.jumpStartX, y:pig.jumpStartY}, {x:pig.targetX, y:pig.targetY}, jumpTimer, jumpDuration);
+      pig.x = pos.x;
+      pig.y = pos.y;
+      pig.airHeight = pos.airHeight;
       if (jumpTimer <= 0){
         pig.x = pig.targetX; pig.y = pig.targetY; pig.airHeight = 0;
         warningEl.style.display = 'none';
@@ -1272,7 +1271,7 @@ import {
       checkPlayerHit();
       if (shockRadius > shockMaxRadius){
         pigState = 'cooldown';
-        cooldownTimer = 40;
+        cooldownTimer = COOLDOWN_FRAMES;
         shockActive = false;
         feedProgress = 0;
         burgersToFull = burgersToFullFor(score);
