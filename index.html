@@ -298,10 +298,10 @@ import { createAuth } from './js/auth.js';
 import { createShop } from './js/shop.js';
 import { createMySkins } from './js/myskins.js';
 import {
-  START_LIVES, START_BURGERS_TO_FULL, BURGER_THROW_COST,
+  START_LIVES, MAX_LIVES, START_BURGERS_TO_FULL, BURGER_THROW_COST,
   GOLDEN_BURGER_LEVEL, WIND_GUST_LEVEL, GUST_STRENGTH,
   JUMP_DURATION_BASE, SHOCK_RADIUS_BASE, SHOCK_SPEED_BASE, COIN_LIFE_FRAMES, DRAGON_BASE_SIZE, COIN_SCORE,
-  levelFor, isVictory, dragonSizeFor, shockParamsFor, coinLifeFramesFor, jumpDurationFor,
+  createCoinBatches, levelFor, isVictory, dragonSizeFor, shockParamsFor, coinLifeFramesFor, jumpDurationFor,
   burgersToFullFor, coinCountFor, feedReward, formatTime, angleToArrow
 } from './js/rules.js';
 
@@ -483,8 +483,7 @@ import {
   let invuln = 0;
   let particles = [];
   let coinDrops = [];
-  let coinBatchId = 0;
-  let coinBatches = {}; // batchId -> { total, collected, remaining, failed, rewarded }
+  const coinBatches = createCoinBatches(); // clean-sweep tracking, see js/rules.js
   let bonusMsgTimer = 0;
   let groundBurgers = [];
   let carrying = false;
@@ -852,7 +851,7 @@ import {
     score = 0; coins = 0; lives = START_LIVES; feedProgress = 0; burgersToFull = START_BURGERS_TO_FULL;
     pigState = 'idle'; jumpTimer = 0; cooldownTimer = 0;
     shockActive = false; particles = []; coinDrops = []; groundBurgers = [];
-    coinBatchId = 0; coinBatches = {}; bonusMsgTimer = 0;
+    coinBatches.reset(); bonusMsgTimer = 0;
     burgerProjectiles = [];
     throwBtn.classList.add('hidden');
     warningEl.style.display = 'none';
@@ -1019,9 +1018,7 @@ import {
     shakeTimer = SHAKE_FRAMES;
     // fling coins outward — grouped into a "batch" so we can detect a full clean sweep
     const count = coinCountFor(score);
-    coinBatchId++;
-    const batchId = coinBatchId;
-    coinBatches[batchId] = { total: count, collected: 0, remaining: count, failed: false, rewarded: false };
+    const batchId = coinBatches.start(count);
     for(let i=0;i<count;i++){
       const a = Math.random()*Math.PI*2;
       const s = rand(4,9);
@@ -1320,12 +1317,7 @@ import {
         c.lifeFrames -= frameScale;
         if (c.lifeFrames <= 0){
           coinDrops.splice(i,1);
-          const batch = coinBatches[c.batchId];
-          if (batch){
-            batch.failed = true;
-            batch.remaining--;
-            if (batch.remaining <= 0) delete coinBatches[c.batchId];
-          }
+          coinBatches.expire(c.batchId);
         }
       }
     }
@@ -1341,23 +1333,14 @@ import {
         sfxCoin();
 
         // clean sweep of an explosion's whole coin batch before any expired = bonus heart
-        const batch = coinBatches[c.batchId];
-        if (batch){
-          batch.collected++;
-          if (!batch.failed && !batch.rewarded && batch.collected === batch.total){
-            batch.rewarded = true;
-            if (lives < 3){
-              lives++;
-              updateHud();
-              sfxBonus();
-              warningEl.textContent = "+1 ❤️ BONUS!";
-              warningEl.style.display = 'block';
-              bonusMsgTimer = 90;
-              spawnBurst(c.x, c.y, '#ff4d6d', 20);
-            }
-          }
-          batch.remaining--;
-          if (batch.remaining <= 0) delete coinBatches[c.batchId];
+        if (coinBatches.collect(c.batchId) && lives < MAX_LIVES){
+          lives++;
+          updateHud();
+          sfxBonus();
+          warningEl.textContent = "+1 ❤️ BONUS!";
+          warningEl.style.display = 'block';
+          bonusMsgTimer = 90;
+          spawnBurst(c.x, c.y, '#ff4d6d', 20);
         }
       }
     }

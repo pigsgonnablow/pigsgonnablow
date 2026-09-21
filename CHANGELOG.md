@@ -16,6 +16,12 @@ comparing every value against the original formulas.
   feed/coin scoring, `formatTime`, `angleToArrow`. Added `js/rules.js` to `sw.js` `ASSETS`;
   cache `v22` -> `v23`.
 
+- **Stage 2 -- coin batches (clean sweep = bonus heart).** The per-batch bookkeeping is now
+  `createCoinBatches()` (`start`/`collect`/`expire`/`reset`). Verified identical to the original
+  over 300,000 random pickup/expiry sequences, then in the real game (sweep with a heart to
+  regain, sweep at full lives, one expired coin ruining a batch, overlapping batches).
+  Cache `v23` -> `v24`.
+
 ## 2026-09-21 (more tests)
 
 A second pass over the test suite, filling the gaps the first one left. No production code

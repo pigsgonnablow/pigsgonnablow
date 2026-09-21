@@ -12,6 +12,7 @@
 
 // ---------- tuning ----------
 export const START_LIVES = 3;
+export const MAX_LIVES = 3;         // a bonus heart can't take you past this
 export const START_BURGERS_TO_FULL = 5;
 export const BURGER_THROW_COST = 4;
 
@@ -106,4 +107,63 @@ export const COMPASS_ARROWS = ['➡️', '↘️', '⬇️', '↙️', '⬅️',
 export function angleToArrow(a) {
   const norm = ((a % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
   return COMPASS_ARROWS[Math.round(norm / (Math.PI / 4)) % 8];
+}
+
+// ---------- coin batches ----------
+// Every explosion flings a "batch" of coins. Grabbing ALL of a batch before any of its coins
+// expires is a clean sweep, worth a bonus heart (if the player has one to regain). This tracks
+// that per batch id; the game keeps a batch id on each coin and reports pickups/expiries here.
+//
+//   start(count)  -> id   a new batch of `count` coins
+//   collect(id)   -> true if this pickup completes a clean sweep (reported at most once per batch)
+//   expire(id)           a landed coin timed out uncollected -- the batch can no longer be swept
+//   reset()              new run: forget everything, ids start over
+//
+// (`failed` and `rewarded` are belt-and-braces kept from the original inline version: an expiry
+// consumes a coin so `collected === total` can never be reached afterwards, and it can only be
+// reached once. Removing them wouldn't change behaviour; they just make the intent explicit.)
+//
+// A batch is forgotten once every one of its coins has been collected or has expired, and
+// calls for an unknown id (a stale coin) are ignored. Whether the heart is actually awarded
+// (lives < MAX_LIVES) is the caller's call -- a sweep at full lives is still "used up".
+export function createCoinBatches() {
+  let lastId = 0;
+  let batches = {}; // id -> { total, collected, remaining, failed, rewarded }
+
+  function settle(id, batch) {
+    batch.remaining--;
+    if (batch.remaining <= 0) delete batches[id];
+  }
+
+  return {
+    start(count) {
+      const id = ++lastId;
+      batches[id] = { total: count, collected: 0, remaining: count, failed: false, rewarded: false };
+      return id;
+    },
+    collect(id) {
+      const batch = batches[id];
+      if (!batch) return false;
+      batch.collected++;
+      let sweep = false;
+      if (!batch.failed && !batch.rewarded && batch.collected === batch.total) {
+        batch.rewarded = true;
+        sweep = true;
+      }
+      settle(id, batch);
+      return sweep;
+    },
+    expire(id) {
+      const batch = batches[id];
+      if (!batch) return;
+      batch.failed = true;
+      settle(id, batch);
+    },
+    reset() {
+      lastId = 0;
+      batches = {};
+    },
+    // read-only peek, for tests
+    has: (id) => id in batches,
+  };
 }

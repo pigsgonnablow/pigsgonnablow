@@ -170,3 +170,108 @@ describe('angleToArrow (wind HUD hint)', () => {
     expect(R.angleToArrow(Math.PI * 2 - 0.01)).toBe(R.COMPASS_ARROWS[0]);
   });
 });
+
+describe('coin batches (clean sweep = bonus heart)', () => {
+  const make = () => R.createCoinBatches();
+
+  it('ids start at 1 and count up, one per explosion', () => {
+    const b = make();
+    expect(b.start(5)).toBe(1);
+    expect(b.start(5)).toBe(2);
+    expect(b.start(5)).toBe(3);
+  });
+
+  it('collecting every coin is a sweep, reported on the LAST pickup only', () => {
+    const b = make();
+    const id = b.start(5);
+    expect([1, 2, 3, 4].map(() => b.collect(id))).toEqual([false, false, false, false]);
+    expect(b.collect(id)).toBe(true);
+  });
+
+  it('a batch of one sweeps on its only pickup', () => {
+    const b = make();
+    expect(b.collect(b.start(1))).toBe(true);
+  });
+
+  it('REGRESSION: one expired coin ruins the sweep, even if everything else is grabbed', () => {
+    const b = make();
+    const id = b.start(5);
+    b.collect(id); b.collect(id); b.collect(id);
+    b.expire(id);
+    expect(b.collect(id)).toBe(false); // 4 collected + 1 expired
+    expect(b.has(id)).toBe(false);
+  });
+
+  it('an expiry before any pickup also ruins it', () => {
+    const b = make();
+    const id = b.start(3);
+    b.expire(id);
+    expect([b.collect(id), b.collect(id)]).toEqual([false, false]);
+  });
+
+  it('a batch is forgotten once every coin is collected or expired', () => {
+    const b = make();
+    const id = b.start(2);
+    expect(b.has(id)).toBe(true);
+    b.collect(id);
+    expect(b.has(id)).toBe(true);
+    b.expire(id);
+    expect(b.has(id)).toBe(false);
+  });
+
+  it('all coins expiring forgets the batch and awards nothing', () => {
+    const b = make();
+    const id = b.start(3);
+    b.expire(id); b.expire(id); b.expire(id);
+    expect(b.has(id)).toBe(false);
+    expect(b.collect(id)).toBe(false); // a stale coin arriving late is ignored
+  });
+
+  it('a sweep is only ever reported once per batch, even if the id is reused by stale calls', () => {
+    const b = make();
+    const id = b.start(2);
+    b.collect(id);
+    expect(b.collect(id)).toBe(true);
+    expect(b.collect(id)).toBe(false);
+    expect(b.collect(id)).toBe(false);
+  });
+
+  it('overlapping batches (a second explosion while the first coins are still out) are independent', () => {
+    const b = make();
+    const first = b.start(2), second = b.start(2);
+    b.expire(first);
+    b.collect(second);
+    b.collect(first);
+    expect(b.collect(second)).toBe(true);   // second swept cleanly...
+    expect(b.has(first)).toBe(false);       // ...first failed and is gone
+  });
+
+  it('unknown ids are ignored, never throw', () => {
+    const b = make();
+    expect(b.collect(99)).toBe(false);
+    expect(() => b.expire(99)).not.toThrow();
+  });
+
+  it('REGRESSION: reset (new run) forgets old batches and restarts ids, so stale coins cannot score', () => {
+    const b = make();
+    const old = b.start(3);
+    b.collect(old);
+    b.reset();
+    expect(b.has(old)).toBe(false);
+    expect(b.start(2)).toBe(1);
+    // the old run's leftover coin must not count toward the new batch that happens to reuse id 1
+    // (the game also clears coinDrops on reset, so this is belt-and-braces)
+    const id = 1;
+    expect(b.collect(id)).toBe(false);
+    expect(b.collect(id)).toBe(true);
+  });
+
+  it('MAX_LIVES is what the caller compares against for the heart (a sweep at full lives is still consumed)', () => {
+    expect(R.MAX_LIVES).toBe(R.START_LIVES);
+    const b = make();
+    const id = b.start(2);
+    b.collect(id);
+    expect(b.collect(id)).toBe(true); // reports the sweep regardless of lives
+    expect(b.collect(id)).toBe(false); // ...and it can't be claimed again later
+  });
+});
