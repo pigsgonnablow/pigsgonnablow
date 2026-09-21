@@ -2,6 +2,20 @@
 
 Running log of notable changes, kept during dev sessions for reference.
 
+## 2026-09-21 (game rules moved out of index.html)
+
+The game's rules used to live inline in `index.html`'s one big script, tangled with canvas/DOM
+calls, so nothing could be tested and a tweak meant playing a run to see what changed. They're
+being moved, stage by stage, into `js/rules.js` -- plain functions and constants (randomness is
+passed in as an `rng`), covered by `tests/unit/rules.test.js`. **No behaviour change**: each
+stage was checked by driving the real game in a browser through 16 full pig cycles and
+comparing every value against the original formulas.
+
+- **Stage 1 -- tuning constants + progression formulas.** Level, victory threshold, dragon
+  growth, shockwave radius/speed, coin lifetime and count, pig jump window, burgers-to-fill,
+  feed/coin scoring, `formatTime`, `angleToArrow`. Added `js/rules.js` to `sw.js` `ASSETS`;
+  cache `v22` -> `v23`.
+
 ## 2026-09-21 (more tests)
 
 A second pass over the test suite, filling the gaps the first one left. No production code

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'burger-pig-v22';
+const CACHE_NAME = 'burger-pig-v23';
 const ASSETS = [
   './',
   './index.html',
@@ -12,7 +12,8 @@ const ASSETS = [
   './js/leaderboard.js',
   './js/auth.js',
   './js/shop.js',
-  './js/myskins.js'
+  './js/myskins.js',
+  './js/rules.js'
 ];
 
 self.addEventListener('install', (event) => {

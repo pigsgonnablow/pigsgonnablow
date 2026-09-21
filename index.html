@@ -297,6 +297,13 @@ import { createLeaderboard } from './js/leaderboard.js';
 import { createAuth } from './js/auth.js';
 import { createShop } from './js/shop.js';
 import { createMySkins } from './js/myskins.js';
+import {
+  START_LIVES, START_BURGERS_TO_FULL, BURGER_THROW_COST,
+  GOLDEN_BURGER_LEVEL, WIND_GUST_LEVEL, GUST_STRENGTH,
+  JUMP_DURATION_BASE, SHOCK_RADIUS_BASE, SHOCK_SPEED_BASE, COIN_LIFE_FRAMES, DRAGON_BASE_SIZE, COIN_SCORE,
+  levelFor, isVictory, dragonSizeFor, shockParamsFor, coinLifeFramesFor, jumpDurationFor,
+  burgersToFullFor, coinCountFor, feedReward, formatTime, angleToArrow
+} from './js/rules.js';
 
 (function(){
   const canvas = document.getElementById('game');
@@ -462,7 +469,6 @@ import { createMySkins } from './js/myskins.js';
   // ---------- state ----------
   let score = 0;
   let coins = 0;
-  const BURGER_THROW_COST = 4;
   let burgerProjectiles = [];
   let lives = 3;
   let running = false;
@@ -471,9 +477,6 @@ import { createMySkins } from './js/myskins.js';
   let pigState = 'idle'; // idle, jumping, exploding, cooldown
   let cooldownTimer = 0;
   let jumpTimer = 0;
-  const JUMP_DURATION_BASE = 75; // ~1.25s at 60fps, dragon's window to escape the landing zone
-  const JUMP_DURATION_FLOOR = 45; // never faster than ~0.75s, so it stays dodgeable
-  const JUMP_DURATION_SHRINK_PER_LEVEL = 3;
   let jumpDuration = JUMP_DURATION_BASE; // set per-jump in feedPigSuccess, scales down past FAST_PIG_LEVEL
   let shockRadius = 0;
   let shockActive = false;
@@ -496,12 +499,7 @@ import { createMySkins } from './js/myskins.js';
   // off roundsSurvived, so leveling doesn't need its own progression curve, only presentation
   // and a handful of gated gimmicks so the climb isn't pure numbers-go-up.
   let level = 1;
-  const LEVEL_WIN = 15; // clear this many explosions to see the victory screen
   let wonGame = false;
-  const GOLDEN_BURGER_LEVEL = 3;   // golden burgers start appearing
-  const WIND_GUST_LEVEL = 5;       // wind gusts start
-  const GUST_STRENGTH = 1.8;       // px/frame at 60fps -- noticeable against the dragon's 4.2 move speed, not overpowering
-  const FAST_PIG_LEVEL = 8;        // jump window starts shrinking past this level
   let carryingGolden = false;
   let gustTimer = 0;       // frames until the next gust can start
   let gustActive = 0;      // frames remaining in the current gust, 0 = none
@@ -514,18 +512,9 @@ import { createMySkins } from './js/myskins.js';
   let dragonTrail = []; // recent dragon world-positions while gusting -- draws as a motion smear pointing upwind
   let dragonEmbers = []; // ember particles drifting off the dragon, only while the Dragon - Red skin is equipped
 
-  const SHOCK_RADIUS_BASE = 170;
-  const SHOCK_RADIUS_GROWTH_PER_ROUND = 10;
-  const SHOCK_RADIUS_CAP = 300;
-  const SHOCK_SPEED_BASE = 14;
-  const SHOCK_SPEED_GROWTH_PER_ROUND = 0.5;
-  const SHOCK_SPEED_CAP = 20;
   let shockMaxRadius = SHOCK_RADIUS_BASE;
   let shockSpeed = SHOCK_SPEED_BASE;
 
-  const COIN_LIFE_FRAMES = 480; // ~8s at 60fps
-  const COIN_LIFE_SHRINK_PER_ROUND = 12; // ~0.2s less per round survived
-  const COIN_LIFE_FRAMES_FLOOR = 300;    // never faster than ~5s, so it stays a mild nudge
   let coinLifeFrames = COIN_LIFE_FRAMES;
   const COIN_FADE_FRAMES = 90;  // fade over the last ~1.5s
   let glowClock = 0; // drives the landed-coin sparkle pulse
@@ -718,12 +707,6 @@ import { createMySkins } from './js/myskins.js';
     ctx.restore();
   }
 
-  function formatTime(ms){
-    const total = ms/1000;
-    const m = Math.floor(total/60);
-    const s = total - m*60;
-    return m + ':' + s.toFixed(1).padStart(4,'0');
-  }
 
   const pig = {
     x: W/2, y: H*0.32, baseSize: 60, wobble:0, feedPunch:0,
@@ -731,9 +714,6 @@ import { createMySkins } from './js/myskins.js';
   };
   const JUMP_ARC_HEIGHT = 110; // visual peak height of the jump, px
 
-  const DRAGON_BASE_SIZE = 42;
-  const DRAGON_GROWTH_CAP = 0.9; // max +90% size (nearly double)
-  const DRAGON_GROWTH_PER_EXPLOSION = 0.15; // dragon steps up 15% bigger each time the pig blows
 
   // faceX: -1 = facing screen-left, 1 = facing screen-right. Kept separately from `facing`
   // so that moving straight up/down doesn't lose (or randomly flip) the left/right profile.
@@ -741,8 +721,7 @@ import { createMySkins } from './js/myskins.js';
   const dragon = { x: W/2, y: H*0.72, size: DRAGON_BASE_SIZE, vx:0, vy:0, faceX:1, pitch:0, carryBob:0 };
 
   function updateDragonSize(){
-    const multiplier = 1 + Math.min(roundsSurvived * DRAGON_GROWTH_PER_EXPLOSION, DRAGON_GROWTH_CAP);
-    dragon.size = DRAGON_BASE_SIZE * multiplier;
+    dragon.size = dragonSizeFor(roundsSurvived);
   }
 
   // input
@@ -868,15 +847,9 @@ import { createMySkins } from './js/myskins.js';
     return Math.abs(ux)*CANVAS_W/2 + Math.abs(uy)*CANVAS_H/2;
   }
 
-  // World-space angle -> nearest compass-arrow glyph, purely for the wind gust HUD hint.
-  const COMPASS_ARROWS = ['➡️','↘️','⬇️','↙️','⬅️','↖️','⬆️','↗️'];
-  function angleToArrow(a){
-    const norm = ((a % (Math.PI*2)) + Math.PI*2) % (Math.PI*2);
-    return COMPASS_ARROWS[Math.round(norm/(Math.PI/4)) % 8];
-  }
 
   function resetGame(){
-    score = 0; coins = 0; lives = 3; feedProgress = 0; burgersToFull = 5;
+    score = 0; coins = 0; lives = START_LIVES; feedProgress = 0; burgersToFull = START_BURGERS_TO_FULL;
     pigState = 'idle'; jumpTimer = 0; cooldownTimer = 0;
     shockActive = false; particles = []; coinDrops = []; groundBurgers = [];
     coinBatchId = 0; coinBatches = {}; bonusMsgTimer = 0;
@@ -1034,9 +1007,10 @@ import { createMySkins } from './js/myskins.js';
     pigState = 'exploding';
     shockActive = true;
     shockRadius = 0;
-    shockMaxRadius = Math.min(SHOCK_RADIUS_BASE + roundsSurvived*SHOCK_RADIUS_GROWTH_PER_ROUND, SHOCK_RADIUS_CAP);
-    shockSpeed = Math.min(SHOCK_SPEED_BASE + roundsSurvived*SHOCK_SPEED_GROWTH_PER_ROUND, SHOCK_SPEED_CAP);
-    coinLifeFrames = Math.max(COIN_LIFE_FRAMES - roundsSurvived*COIN_LIFE_SHRINK_PER_ROUND, COIN_LIFE_FRAMES_FLOOR);
+    const shock = shockParamsFor(roundsSurvived);
+    shockMaxRadius = shock.maxRadius;
+    shockSpeed = shock.speed;
+    coinLifeFrames = coinLifeFramesFor(roundsSurvived);
     roundsSurvived++;
     updateDragonSize();
     spawnBurst(pig.x, pig.y, '#ffb703', 40);
@@ -1044,8 +1018,7 @@ import { createMySkins } from './js/myskins.js';
     sfxExplosion();
     shakeTimer = SHAKE_FRAMES;
     // fling coins outward — grouped into a "batch" so we can detect a full clean sweep
-    const n = 5 + Math.floor(score/50);
-    const count = Math.min(n,9);
+    const count = coinCountFor(score);
     coinBatchId++;
     const batchId = coinBatchId;
     coinBatches[batchId] = { total: count, collected: 0, remaining: count, failed: false, rewarded: false };
@@ -1069,16 +1042,17 @@ import { createMySkins } from './js/myskins.js';
   // fed the pig one burger" and should have identical effects. `golden` doubles the
   // feed progress and score, for the rare golden-burger pickup (see GOLDEN_BURGER_LEVEL).
   function feedPigSuccess(golden){
-    feedProgress += golden ? 2 : 1;
+    const reward = feedReward(golden);
+    feedProgress += reward.progress;
     pig.feedPunch = 1;
-    score += golden ? 30 : 10;
+    score += reward.score;
     updateHud();
     spawnBurst(pig.x, pig.y - 10, '#ffd23f', 10);
     if (golden) spawnBurst(pig.x, pig.y - 10, '#fff8d6', 14);
     sfxFeed();
     if (feedProgress >= burgersToFull){
       pigState = 'jumping';
-      jumpDuration = Math.max(JUMP_DURATION_BASE - Math.max(level-FAST_PIG_LEVEL,0)*JUMP_DURATION_SHRINK_PER_LEVEL, JUMP_DURATION_FLOOR);
+      jumpDuration = jumpDurationFor(level);
       jumpTimer = jumpDuration;
       pig.jumpStartX = pig.x; pig.jumpStartY = pig.y;
       pig.targetX = Math.max(50, Math.min(W-50, dragon.x));
@@ -1304,11 +1278,11 @@ import { createMySkins } from './js/myskins.js';
         cooldownTimer = 40;
         shockActive = false;
         feedProgress = 0;
-        burgersToFull = Math.max(3, 5 - Math.floor(score/200));
+        burgersToFull = burgersToFullFor(score);
 
-        level = roundsSurvived + 1;
+        level = levelFor(roundsSurvived);
         updateHud();
-        if (!wonGame && roundsSurvived >= LEVEL_WIN){
+        if (isVictory(roundsSurvived, wonGame)){
           wonGame = true;
           showVictoryScreen();
         } else {
@@ -1360,7 +1334,7 @@ import { createMySkins } from './js/myskins.js';
       const c = coinDrops[i];
       if (c.landed && dist(dragon.x,dragon.y,c.x,c.y) < dragon.size*0.55+14){
         coinDrops.splice(i,1);
-        score += 15;
+        score += COIN_SCORE;
         coins += 1;
         updateHud();
         spawnBurst(c.x, c.y, '#ffd23f', 12);
