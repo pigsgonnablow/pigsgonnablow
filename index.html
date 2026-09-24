@@ -307,6 +307,7 @@ import {
   createCoinBatches, levelFor, isVictory, dragonSizeFor, shockParamsFor, coinLifeFramesFor, jumpDurationFor,
   burgersToFullFor, coinCountFor, feedReward, formatTime, angleToArrow
 } from './js/rules.js';
+import { resolveInputDirection, screenInputToWorldMove, easedVelocity, easedPitch, clampToWorld } from './js/movement.js';
 
 (function(){
   const canvas = document.getElementById('game');
@@ -1109,51 +1110,23 @@ import {
   });
 
   function update(frameScale){
-    // --- movement ---
-    let mx=0, my=0;
-    let kx=0, ky=0; // screen-relative direction (up/down/left/right as seen)
-    let inputMagnitude = 1; // keyboard is digital (full speed); joystick is analog
-    const joyMag = Math.hypot(joyDX,joyDY);
-    if (joyActive && joyMag > 0.15){
-      kx = joyDX; ky = joyDY;
-      inputMagnitude = Math.min(joyMag, 1);
-    } else {
-      if (keys['arrowleft']||keys['a']) kx -= 1;
-      if (keys['arrowright']||keys['d']) kx += 1;
-      if (keys['arrowup']||keys['w']) ky -= 1;
-      if (keys['arrowdown']||keys['s']) ky += 1;
-    }
+    // --- movement --- (see js/movement.js for the input/physics math itself)
+    const { kx, ky, inputMagnitude } = resolveInputDirection({ keys, joyActive, joyDX, joyDY });
+    const { mx, my } = screenInputToWorldMove(kx, ky, inputMagnitude, screenDirToWorldDir);
 
-    if (kx || ky) {
-      const kn = Math.hypot(kx,ky);
-      const dir = screenDirToWorldDir(kx/kn, ky/kn);
-      const n = Math.hypot(dir.dx, dir.dy);
-      mx = (dir.dx/n) * inputMagnitude;
-      my = (dir.dy/n) * inputMagnitude;
+    // Facing is based on the on-screen input direction (kx/ky), not the world-space mx/my
+    // above -- the iso projection skews world axes, so using the world direction here would
+    // turn the dragon to face diagonally even when the player is pressing a straight
+    // screen-relative up/down/left/right.
+    if (kx) dragon.faceX = kx < 0 ? -1 : 1;
 
-      // Facing is based on the on-screen input direction (kx/ky), not the world-space
-      // dx/dy above -- the iso projection skews world axes, so using the world direction
-      // here would turn the dragon to face diagonally even when the player is pressing
-      // a straight screen-relative up/down/left/right.
-      if (kx) dragon.faceX = kx < 0 ? -1 : 1;
-    }
-
-    // Pitch is driven continuously by how much vertical input there is (kx/ky, not just
-    // a discrete up/down/left/right pick) -- with a joystick almost every move has some
+    // Pitch is driven continuously by how much vertical input there is (kx/ky, not just a
+    // discrete up/down/left/right pick) -- with a joystick almost every move has some
     // diagonal component, and picking a single dominant axis meant the pitch pose barely
-    // ever showed up in practice. This way any upward/downward component blends the pitch
-    // in immediately, on top of whatever left/right mirror is already showing. Eases every
-    // frame (not just while a key is held) so it banks into the turn instead of snapping,
-    // and relaxes back to level when there's no vertical input at all.
-    const targetPitch = ky;
-    dragon.pitch += (targetPitch - dragon.pitch) * (1 - Math.pow(1 - 0.22, frameScale));
+    // ever showed up in practice. easedPitch relaxes it back to level on its own once ky is 0.
+    dragon.pitch = easedPitch(dragon.pitch, ky, frameScale);
 
-    const speed = 4.2;
-    const ACCEL = 0.3; // how quickly velocity eases toward the target each frame — gives the dragon a bit of slide instead of stopping dead
-    // ease factor is scaled so the same real-world time produces the same amount of easing regardless of frame rate
-    const accelThisFrame = 1 - Math.pow(1 - ACCEL, frameScale);
-    dragon.vx += (mx*speed - dragon.vx) * accelThisFrame;
-    dragon.vy += (my*speed - dragon.vy) * accelThisFrame;
+    ({ vx: dragon.vx, vy: dragon.vy } = easedVelocity(dragon.vx, dragon.vy, mx, my, frameScale));
     dragon.x += dragon.vx * frameScale;
     dragon.y += dragon.vy * frameScale;
     // --- wind gusts (from WIND_GUST_LEVEL): a periodic shove on top of player input,
@@ -1180,8 +1153,7 @@ import {
       gustScreenAngle = Math.atan2(d1.sy-d0.sy, d1.sx-d0.sx);
     }
     if (gusts.active <= 0 && dragonTrail.length) dragonTrail.shift(); // drain the smear out once the gust ends
-    dragon.x = Math.max(dragon.size*0.5, Math.min(W-dragon.size*0.5, dragon.x));
-    dragon.y = Math.max(dragon.size*0.5, Math.min(H-dragon.size*0.5, dragon.y));
+    ({ x: dragon.x, y: dragon.y } = clampToWorld(dragon.x, dragon.y, dragon.size*0.5, W, H));
 
     // Dragon - Red skin: a trailing ember while actually moving -- see spawnDragonEmber.
     // Gated on real speed (not just held input) so it doesn't fire while pinned at a wall.

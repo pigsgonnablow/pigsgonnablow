@@ -43,6 +43,10 @@ npm run test:all
   exact outcomes. **To change a rule, change it there and update its test**; `index.html` only
   holds state, input and drawing. The tests assert caps/floors/boundaries against the exported
   constants, so retuning a number doesn't break them -- only values marked `pinned:` are literal.
+- `tests/unit/movement.test.js` tests the dragon's input/movement math, which lives in
+  `js/movement.js` the same way: combining keyboard + joystick input (including the joystick
+  deadzone), the frame-rate-independent velocity/pitch easing, and clamping to the world rect.
+  `index.html` still owns the actual `keys`/joystick state and the dragon object.
 - `tests/unit/index-html.test.js` is static source tripwires -- the inline game script can't be
   imported. Among others it fails if a new per-run state variable is added without being reset
   in `resetGame()`, and if a secret-shaped token (`sk_live_`, `whsec_`, `sb_secret_`,

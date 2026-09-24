@@ -2,6 +2,26 @@
 
 Running log of notable changes, kept during dev sessions for reference.
 
+## 2026-09-24 (dead code cleanup + movement math extraction)
+
+- Removed `sw.js`'s `.catch(() => cached)` tail on the fetch handler: `cached || fetch(...)`
+  already short-circuits before `fetch()` runs whenever `cached` is truthy, so by the time that
+  `.catch` could fire, `cached` was always falsy -- it could only ever resolve to `undefined`
+  instead of surfacing the real network failure. Fully offline with nothing cached now rejects
+  as a real error, like it should have all along. Added a regression test for this.
+- Dropped the dead `profiles_insert_own` / `profiles_update_own` RLS policies, in
+  `supabase_lockdown_direct_writes.sql` (same file and same reasoning as the already-dropped
+  `scores_own_insert` / `scores_own_update`): once that file revokes INSERT/UPDATE on
+  `profiles` from `anon`/`authenticated` outright, no policy on those commands is ever
+  reachable. Added the matching `pg_policies` regression test.
+- **Movement math extracted into `js/movement.js`.** Input resolution (keyboard vs. joystick,
+  including the joystick deadzone), the frame-rate-independent velocity/pitch easing, and the
+  world-bounds clamp moved out of `index.html`'s `update()` into plain, tested functions --
+  same pattern as the `js/rules.js` extraction below. Verified with `tests/unit/movement.test.js`
+  plus a 100,000-frame differential check against the original inline formulas (all exact
+  matches) before wiring it in. `index.html` still owns `keys`/joystick DOM state and calls into
+  these instead of computing the formulas itself. Cache bumped to `burger-pig-v28`.
+
 ## 2026-09-21 (game rules moved out of index.html)
 
 The game's rules used to live inline in `index.html`'s one big script, tangled with canvas/DOM
