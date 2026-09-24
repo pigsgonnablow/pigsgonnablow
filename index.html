@@ -12,6 +12,14 @@
      phoning out anywhere else, and would neuter a color_filter: url(https://evil/x) beacon
      even though that value is no longer settable directly (see supabase_lockdown_direct_writes.sql). -->
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https://ljnshaoruygijgtcokwv.supabase.co; frame-ancestors 'none'; base-uri 'none'; form-action 'self';">
+<!-- The frame-ancestors 'none' above does NOT actually block framing: the CSP spec explicitly
+     ignores frame-ancestors (along with report-uri/report-to/sandbox) when a policy is
+     delivered via <meta> rather than a real HTTP header, and GitHub Pages -- this site's host --
+     has no way to set one. Left in place because it's harmless and would help on a host that
+     could send real headers, but the actual anti-clickjacking defense is this: bust out of any
+     iframe immediately, before a clickjacked overlay could trick a click on sign-in/BUY. Plain
+     inline (not type="module") so it runs synchronously as early as possible. -->
+<script>if (self !== top) { top.location = self.location.href; }</script>
 <title>Cheeseburger Dragon vs. The Exploding Pig</title>
 <meta name="description" content="Feed the pig cheeseburgers, dodge the blast, grab the coins. A free browser game -- survive 15 escalating levels of Cheeseburger Dragon vs. The Exploding Pig.">
 <meta property="og:type" content="website">

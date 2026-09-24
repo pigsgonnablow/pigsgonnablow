@@ -167,3 +167,92 @@ revoke execute on function public.equip_skin(text) from anon;
 grant execute on function public.set_display_name(text) to authenticated;
 grant execute on function public.submit_personal_best(integer) to authenticated;
 grant execute on function public.equip_skin(text) to authenticated;
+
+-- Everything above closed the specific holes RLS's `with check` clauses missed on scores/
+-- profiles, but relied on "RLS holds" for skins/owned_skins rather than also revoking the
+-- privileges behind it -- unlike scores/profiles, those two never got a matching
+-- `revoke insert, update ...`. Today the RLS policies on skins/owned_skins do reject every
+-- direct client write (skins has no write policy at all; owned_skins has none either), so
+-- there's no live hole -- but it means "RLS protects it" was true for two tables and merely
+-- assumed for the other two, one `alter table ... disable row level security` (or a future
+-- migration that recreates either table without re-enabling RLS) away from turning "equip any
+-- paid skin for free" or "grant yourself a skin directly" from theoretical into real. Revoking
+-- the privilege too means a client write is rejected at the grant-check stage, before RLS is
+-- even consulted -- a second, independent layer, not just a second policy to get right.
+--
+-- FORCE ROW LEVEL SECURITY (not just ENABLE) is added on top for these two specifically,
+-- because it's safe here in a way it would NOT be on scores/profiles: nothing legitimate ever
+-- writes to skins/owned_skins as the table owner (every real owned_skins row is written by the
+-- Stripe webhook via the service-role key, a completely different bypass mechanism that FORCE
+-- doesn't affect). scores/profiles, by contrast, ARE legitimately written as the owner --
+-- that's exactly how submit_personal_best/set_display_name/equip_skin (security definer,
+-- above) get past their own otherwise-empty insert/update policies -- so forcing RLS there
+-- would risk breaking those RPCs' own internal writes and is deliberately left alone; the
+-- privilege revoke below (delete/truncate only, since insert/update on those two were already
+-- revoked above) is the safe part of the same hardening.
+revoke insert, update, delete, truncate on public.skins, public.owned_skins from anon, authenticated;
+revoke delete, truncate on public.scores, public.profiles from anon, authenticated;
+alter table public.skins force row level security;
+alter table public.owned_skins force row level security;
+
+-- The 1,000,000 ceiling on scores.score (supabase_scores_schema.sql) was sized to obviously
+-- never be hit by real play, but that headroom is exactly what makes bulk abuse effective: a
+-- script with nothing but the published anon key can insert as many rows at the max value as
+-- it likes (verified: 50 rows in 15ms), permanently monopolizing the public leaderboard with
+-- no in-app way to clean it up. Tightening the ceiling to something still generous for a
+-- genuinely long, skilled run (the game has no hard end -- showVictoryScreen() lets a player
+-- keep going past level 15 for more score) but far below "obviously not real" removes the
+-- worst of that headroom. This is a courtesy bound, not the real defense (see the rate limit
+-- below for that) -- it stacks with, not replaces, the existing `score >= 0 and score <=
+-- 1000000` check already on the column; adding a second, tighter named constraint is simpler
+-- and safer than trying to locate and replace Postgres's auto-generated name for the first one.
+alter table public.scores drop constraint if exists scores_score_max_check;
+alter table public.scores add constraint scores_score_max_check check (score <= 100000);
+
+-- The real defense against the bulk-insert abuse above: a global rate limit on the `scores`
+-- table itself, so it applies no matter which path reaches it (the anon insert policy above,
+-- or an authenticated submit_personal_best() call, which also just inserts into this table).
+-- There's no per-IP/per-user identity available at this layer to throttle *fairly* -- PostgREST
+-- requests don't carry a reliably-forwarded client IP into `auth.uid()`/RLS context the way an
+-- app server would see one -- so this is a blunt, whole-table throttle: no more than 20 new
+-- rows in any trailing 60-second window, globally. That's generous for real traffic at this
+-- project's current scale (a genuine flood of *simultaneous real players* submitting scores is
+-- a good problem to have, and this can be raised or replaced with a smarter per-identity limit
+-- if that ever happens) and hostile to a scripted burst, which is the realistic threat today.
+create table if not exists public._scores_insert_log (
+  inserted_at timestamptz not null default now()
+);
+-- Not meant to be touched directly by anyone but the trigger function below (which runs as
+-- security definer, so it doesn't need a grant of its own) -- revoke Supabase's default broad
+-- grants so this bookkeeping table isn't itself a new PostgREST-reachable surface.
+revoke all on public._scores_insert_log from public, anon, authenticated;
+
+create or replace function public.enforce_scores_insert_rate_limit()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  -- Only the anonymous path is the volumetric-flood risk being guarded against here: a
+  -- signed-in submission (submit_personal_best) is already capped to one row per account by
+  -- the unique index on user_id, so there's nothing to throttle there -- unlimited *distinct
+  -- new rows* is only reachable through the anon insert policy, which is exactly what a script
+  -- with nothing but the published anon key used to flood the board.
+  if new.user_id is not null then
+    return new;
+  end if;
+  delete from public._scores_insert_log where inserted_at < now() - interval '1 minute';
+  if (select count(*) from public._scores_insert_log) >= 20 then
+    raise exception 'too many score submissions right now -- please try again in a minute';
+  end if;
+  insert into public._scores_insert_log default values;
+  return new;
+end;
+$$;
+revoke all on function public.enforce_scores_insert_rate_limit() from public, anon, authenticated;
+
+drop trigger if exists scores_insert_rate_limit on public.scores;
+create trigger scores_insert_rate_limit
+  before insert on public.scores
+  for each row execute function public.enforce_scores_insert_rate_limit();

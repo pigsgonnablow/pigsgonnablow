@@ -2,6 +2,48 @@
 
 Running log of notable changes, kept during dev sessions for reference.
 
+## 2026-09-24 (public-readiness hardening, from an adversarial security review)
+
+An adversarial pass (building and running real exploit attempts against the local PGlite test
+harness, not just reading the code) found two issues worth fixing before wider traffic:
+
+- **The public leaderboard was trivially, permanently defaceable.** The anon insert policy on
+  `scores` had no rate limit and a 1,000,000 score ceiling ~100x above anything reachable by
+  real play -- verified live at 50 max-score rows inserted in 15ms using nothing but the
+  published anon key, which took over the entire top-10 query. Fixed in
+  `supabase_lockdown_direct_writes.sql`: a second, tighter `scores.score <= 100000` check
+  constraint (still generous for a genuinely long run -- the game has no hard end), plus a
+  global rate-limit trigger on the anon insert path (signed-in `submit_personal_best()` writes
+  are exempt -- they're already capped to one row per account by the unique index, so there's
+  nothing to flood). Covered by new tests in `tests/sql/lockdown.test.js`.
+- **`frame-ancestors 'none'` in the CSP does nothing.** It's delivered via `<meta>`, and the CSP
+  spec explicitly ignores `frame-ancestors` (and `report-uri`/`sandbox`) outside a real HTTP
+  header -- which GitHub Pages can't send. The site was actually framable (clickjacking risk
+  against sign-in/BUY), and a test asserted the directive "forbids framing," encoding the false
+  assurance into the suite. Fixed with an inline frame-buster script (`index.html`) and a
+  corrected, honest test.
+- **Defense-in-depth gap on `skins`/`owned_skins`**: unlike `scores`/`profiles`, these two were
+  protected by RLS alone, with the default broad Supabase grants never revoked behind it --
+  every write was already rejected, but only because no policy allowed it, not because the
+  privilege was gone too. Added the matching `revoke`s plus `FORCE ROW LEVEL SECURITY` on both
+  (safe there specifically because nothing legitimate ever writes to either table as the table
+  owner, unlike `scores`/`profiles`, whose security-definer RPCs do -- forcing RLS on those two
+  is deliberately left alone to avoid breaking `submit_personal_best`/`set_display_name`/
+  `equip_skin`). Also revoked the latent (not PostgREST-reachable, but real) `DELETE`/`TRUNCATE`
+  privilege anon/authenticated still held on `scores`/`profiles`.
+
+Cache bumped to `burger-pig-v31`. Also reviewed and found solid (no changes needed): price
+integrity, webhook signature verification and livemode checks, partial-refund handling,
+delayed-payment-method handling, RPC argument fuzzing (negative/huge/malformed scores all
+rejected at the DB layer), forged JWT claim shapes, PostgREST cross-table join reads, and a full
+XSS sink sweep of the entire client (no `innerHTML`/`textContent` injection point found).
+
+Known, deliberately deferred (real but lower-severity, tracked for later): webhook idempotency
+doesn't survive a delete-based revoke (a replayed grant after a refund can re-grant a skin, and
+vice versa) -- fixable by tombstoning `owned_skins` rows instead of deleting them;
+`create-checkout`'s "already own" check is check-then-act, so two concurrent sessions for the
+same skin can produce a double charge with only one grant recorded.
+
 ## 2026-09-24 (dead code cleanup + movement math extraction)
 
 - Removed `sw.js`'s `.catch(() => cached)` tail on the fetch handler: `cached || fetch(...)`

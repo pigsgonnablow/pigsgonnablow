@@ -219,6 +219,46 @@ describe('owned_skins', () => {
   });
 });
 
+// REGRESSION: skins/owned_skins used to be protected by RLS alone -- every write was already
+// rejected (the tests above), but only because no policy allowed it, not because the privilege
+// was revoked too. That's a single point of failure: one `disable row level security`, or a
+// future migration that recreates either table without re-enabling it, and there'd be nothing
+// left to stop it. scores/profiles got both layers (see the 'the dead ... policies are gone'
+// tests above and the direct-writes-impossible tests below); this covers skins/owned_skins
+// getting the same second layer, plus FORCE ROW LEVEL SECURITY so RLS would apply even to a
+// table-owner-run statement (safe here specifically because nothing legitimate ever writes to
+// either table as the owner -- unlike scores/profiles, whose security-definer RPCs do).
+describe('REGRESSION: skins/owned_skins are locked down at the privilege layer too, not just by RLS', () => {
+  it.each(['skins', 'owned_skins'])('anon and authenticated have no write privilege on %s', async (table) => {
+    for (const role of ['anon', 'authenticated']) {
+      for (const priv of ['INSERT', 'UPDATE', 'DELETE', 'TRUNCATE']) {
+        const r = await one('select has_table_privilege($1, $2, $3) as has', [role, `public.${table}`, priv]);
+        expect(r.has, `${role} ${priv} on ${table}`).toBe(false);
+      }
+    }
+  });
+
+  it.each(['skins', 'owned_skins'])('%s has FORCE ROW LEVEL SECURITY set', async (table) => {
+    const r = await one('select relforcerowsecurity as forced from pg_class where oid = $1::regclass', [`public.${table}`]);
+    expect(r.forced).toBe(true);
+  });
+
+  it.each(['scores', 'profiles'])('%s (still owner-written by security-definer RPCs) does NOT force RLS, by design', async (table) => {
+    const r = await one('select relforcerowsecurity as forced from pg_class where oid = $1::regclass', [`public.${table}`]);
+    expect(r.forced).toBe(false);
+  });
+
+  it.each(['scores', 'profiles'])('anon and authenticated cannot DELETE or TRUNCATE %s either', async (table) => {
+    for (const role of ['anon', 'authenticated']) {
+      for (const priv of ['DELETE', 'TRUNCATE']) {
+        const r = await one('select has_table_privilege($1, $2, $3) as has', [role, `public.${table}`, priv]);
+        expect(r.has, `${role} ${priv} on ${table}`).toBe(false);
+      }
+    }
+  });
+});
+
+
 describe('RPC behaviour', () => {
   const call = (uid, sql, params) => as('authenticated', uid, () => attempt(sql, params));
 
@@ -416,16 +456,23 @@ describe('guest score bounds are enforced server-side, not just by the client', 
   const rejected = (r) => expect(String(r.code)).toMatch(/42501|23514/); // RLS check or table check constraint
 
   it('accepts a legitimate guest row at the limits', async () => {
-    expect((await insert('abcdefghijkl', 1_000_000)).code).toBeUndefined();
+    expect((await insert('abcdefghijkl', 100_000)).code).toBeUndefined();
   });
 
   it.each([
     ['a 13-character name', 'abcdefghijklm', 10],
     ['an empty name', '', 10],
-    ['a score above the cap', 'Cheater', 1_000_001],
+    ['a score above the cap', 'Cheater', 100_001],
     ['a negative score', 'Cheater', -5],
   ])('rejects %s', async (_label, name, score) => {
     rejected(await insert(name, score));
+  });
+
+  it('rejects a score above the cap even at the old (still-present, now-redundant) 1,000,000 column check', async () => {
+    // The original check constraint (score <= 1,000,000) is still there underneath the new,
+    // tighter 100,000 one added by supabase_lockdown_direct_writes.sql -- this just confirms
+    // the two stack rather than one silently replacing the other.
+    rejected(await insert('Cheater', 1_000_001));
   });
 
   it('many anonymous rows coexist (the unique index on user_id must not apply to NULLs)', async () => {
@@ -438,5 +485,40 @@ describe('guest score bounds are enforced server-side, not just by the client', 
     const r = await one(`select indpred is null as plain, indisunique from pg_index
       where indexrelid = 'public.scores_user_id_unique'::regclass`);
     expect(r).toEqual({ plain: true, indisunique: true });
+  });
+});
+
+// REGRESSION: a script with nothing but the published anon key could flood public.scores --
+// verified live at 50 rows in under 20ms with the old, unthrottled anon insert policy. The
+// trigger only guards the anon path (user_id is null); a signed-in submit_personal_best() call
+// is already capped to one row per account by the unique index, so it's deliberately exempt --
+// see the 'REGRESSION: an account never accumulates more than one row' test above.
+//
+// Deliberately the LAST describe block in this file: the rate limit is a single global budget
+// shared by the whole db connection this file uses (see supabase_lockdown_direct_writes.sql
+// for why there's no per-identity budget to throttle instead), and every anon insert earlier
+// in this file already spent a small amount of it. Draining the rest here, last, means this
+// can assert the cutoff exists without starving any earlier test's own anon insert of budget.
+describe('REGRESSION: anonymous score submission is rate-limited', () => {
+  const insertAnon = (n) => as('anon', null, () =>
+    attempt('insert into public.scores (name, score) values ($1, $2)', [`Flood${n}`, 1]));
+
+  it('a burst of anonymous inserts is eventually rejected within the same window', async () => {
+    let allowed = 0;
+    let rejectedAt = null;
+    for (let i = 0; i < 25; i++) {
+      const r = await insertAnon(i);
+      if (r.code) { rejectedAt = i; break; }
+      allowed++;
+    }
+    expect(rejectedAt, 'expected the burst to be cut off within 25 inserts').not.toBeNull();
+    expect(allowed).toBeLessThan(25);
+  });
+
+  it('a signed-in submission is exempt from the same budget (already capped to one row per account)', async () => {
+    // The loop above just exhausted the anon budget entirely -- a signed-in submit still works.
+    const call = (uid, sql, params) => as('authenticated', uid, () => attempt(sql, params));
+    const r = await call(U1, 'select public.submit_personal_best($1) as r', [1]);
+    expect(r.code).toBeUndefined();
   });
 });

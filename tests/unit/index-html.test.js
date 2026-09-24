@@ -34,9 +34,19 @@ describe('Content-Security-Policy', () => {
     expect(directive('connect-src')).toContain(supabaseUrl);
   });
 
-  it("forbids framing and <base> hijacking", () => {
-    expect(directive('frame-ancestors')).toEqual(["'none'"]);
+  it("base-uri 'none' blocks <base> hijacking (a directive <meta>-delivered CSP actually honors)", () => {
     expect(directive('base-uri')).toEqual(["'none'"]);
+  });
+
+  // REGRESSION: this file used to assert frame-ancestors 'none' "forbids framing" -- it doesn't.
+  // The CSP spec ignores frame-ancestors (and report-uri/report-to/sandbox) when the policy is
+  // delivered via <meta> instead of a real HTTP header, which is the only option GitHub Pages
+  // allows here. The directive is still asserted below so a future edit can't silently drop it
+  // (harmless, and would matter on a host that could send real headers), but the actual defense
+  // against clickjacking is the inline frame-busting script -- that's what this test requires.
+  it("frame-ancestors is present (though ineffective via <meta>) and a real frame-buster covers what it can't", () => {
+    expect(directive('frame-ancestors')).toEqual(["'none'"]);
+    expect(html).toMatch(/if\s*\(\s*self\s*!==\s*top\s*\)/);
   });
 
   it("does not open default-src or connect-src to arbitrary origins", () => {
