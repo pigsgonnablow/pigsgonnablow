@@ -32,6 +32,12 @@ drop policy if exists "scores_own_update" on public.scores;
 -- creation nor a later display-name change ever needs a direct client write to this table.
 revoke insert, update on public.profiles from anon, authenticated;
 
+-- Signed-in profile writes now only ever happen via set_display_name()/equip_skin()
+-- (security definer, below) -- same as scores_own_insert/scores_own_update above, these two
+-- are unreachable without any insert/update privilege at all, so drop them too.
+drop policy if exists "profiles_insert_own" on public.profiles;
+drop policy if exists "profiles_update_own" on public.profiles;
+
 -- Replaces js/auth.js's setDisplayName(), which used to do a raw client-side
 -- `.from('profiles').upsert(...)`. A plain per-column GRANT can't support that: PostgREST
 -- compiles an upsert into `INSERT ... ON CONFLICT DO UPDATE SET user_id = EXCLUDED.user_id,

@@ -126,9 +126,8 @@ describe('sw.js fetch handler', () => {
   });
 
   it('offline with the asset already cached: answered from the cache, network never attempted', async () => {
-    // (Note: sw.js's `.catch(() => cached)` tail can only ever return undefined -- `cached ||`
-    // has already short-circuited whenever `cached` is truthy -- so a cache MISS while offline
-    // is a network error either way. This is the path that actually keeps the PWA playable.)
+    // `cached || fetch(...)` short-circuits before fetch is ever called, so this is the path
+    // that actually keeps the PWA playable offline -- not any fallback in the fetch branch.
     let fetched = 0;
     const sw = loadSw({
       store: { [sw_CACHE]: new Map([['https://www.pigsgonnablow.com/index.html', { ok: true, body: 'cached' }]]) },
@@ -136,6 +135,15 @@ describe('sw.js fetch handler', () => {
     });
     expect((await fire(sw, 'https://www.pigsgonnablow.com/index.html')).body).toBe('cached');
     expect(fetched).toBe(0);
+  });
+
+  it('REGRESSION: offline with nothing cached surfaces as a real network error, not a silent undefined', async () => {
+    // Previously the fetch branch ended in `.catch(() => cached)`, which -- since `cached` is
+    // only ever falsy by the time that branch runs -- swallowed the real network failure and
+    // resolved to `undefined` instead of rejecting. That would have made the browser treat a
+    // failed navigation as a successful response with no body.
+    const sw = loadSw({ fetchImpl: async () => { throw new TypeError('Failed to fetch'); } });
+    await expect(fire(sw, 'https://www.pigsgonnablow.com/js/uncached.js')).rejects.toThrow('Failed to fetch');
   });
 });
 

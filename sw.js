@@ -43,13 +43,17 @@ self.addEventListener('fetch', (event) => {
 
   event.respondWith(
     caches.match(event.request).then((cached) => {
+      // No `.catch()` here: if we get this far `cached` is already known falsy (the `||`
+      // above only reaches fetch() when there was nothing to serve from the cache), so a
+      // fallback to `cached` on a failed fetch could only ever produce `undefined`. Offline
+      // with nothing cached is a real network error -- let it surface as one.
       return cached || fetch(event.request).then((response) => {
         if (response.ok) {
           const clone = response.clone();
           caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
         }
         return response;
-      }).catch(() => cached);
+      });
     })
   );
 });

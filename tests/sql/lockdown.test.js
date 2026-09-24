@@ -161,6 +161,12 @@ describe('REGRESSION: direct writes to profiles are impossible (free-skin escala
                on conflict (user_id) do update set user_id = excluded.user_id, display_name = excluded.display_name`, [U1]));
     expect(r.code).toBe(INSUFFICIENT_PRIVILEGE);
   });
+
+  it('the dead profiles_insert_own / profiles_update_own policies are gone', async () => {
+    const r = await one(`select count(*)::int as n from pg_policies
+      where schemaname = 'public' and tablename = 'profiles' and policyname in ('profiles_insert_own', 'profiles_update_own')`);
+    expect(r.n).toBe(0);
+  });
 });
 
 describe('REGRESSION: leaderboard rows can only carry name + score from a client (stored XSS)', () => {
