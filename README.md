@@ -38,11 +38,12 @@ npm run test:all
   `CACHE_NAME` bump (compares against `HEAD` locally, the merge base in CI), and runs the
   real `install`/`activate`/`fetch` handlers against a fake `CacheStorage`.
 - `tests/unit/rules.test.js` tests the game's rules, which live in `js/rules.js` as plain
-  functions (levels, scoring, shockwave/coin/jump tuning, hit detection, the coin-batch bonus
-  heart, wind gusts, burger spawning). Randomness is passed in as an `rng`, so tests script
-  exact outcomes. **To change a rule, change it there and update its test**; `index.html` only
-  holds state, input and drawing. The tests assert caps/floors/boundaries against the exported
-  constants, so retuning a number doesn't break them -- only values marked `pinned:` are literal.
+  functions (levels, scoring, shockwave/coin/jump tuning, hit detection, pickup/feed radii, the
+  coin-batch bonus heart, wind gusts, burger spawning). Randomness is passed in as an `rng`, so
+  tests script exact outcomes. **To change a rule, change it there and update its test**;
+  `index.html` only holds state, input and drawing. The tests assert caps/floors/boundaries
+  against the exported constants, so retuning a number doesn't break them -- only values marked
+  `pinned:` are literal.
 - `tests/unit/movement.test.js` tests the dragon's input/movement math, which lives in
   `js/movement.js` the same way: combining keyboard + joystick input (including the joystick
   deadzone), the frame-rate-independent velocity/pitch easing, clamping to the world rect, the

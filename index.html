@@ -305,7 +305,8 @@ import {
   shockHits, knockedBack, jumpTarget, jumpPosition, canThrow, pigVisualScale as pigScaleFor,
   pickBurgerSpot, rollGolden, shouldSpawnBurger, nextSpawnDelay, createWindGusts,
   createCoinBatches, levelFor, isVictory, dragonSizeFor, shockParamsFor, coinLifeFramesFor, jumpDurationFor,
-  burgersToFullFor, coinCountFor, feedReward, formatTime, angleToArrow
+  burgersToFullFor, coinCountFor, feedReward, formatTime, angleToArrow,
+  pickupRadius, meleeFeedRadius, projectileFeedRadius
 } from './js/rules.js';
 import { resolveInputDirection, screenInputToWorldMove, easedVelocity, easedPitch, clampToWorld, clampJoystickVector, bottomAnchoredTop } from './js/movement.js';
 
@@ -1151,7 +1152,7 @@ import { resolveInputDirection, screenInputToWorldMove, easedVelocity, easedPitc
     if (!carrying){
       for (let i=groundBurgers.length-1;i>=0;i--){
         const b = groundBurgers[i];
-        if (withinScreenRange(dragon.x,dragon.y,b.x,b.y, dragon.size*0.55 + 14)){
+        if (withinScreenRange(dragon.x,dragon.y,b.x,b.y, pickupRadius(dragon.size))){
           groundBurgers.splice(i,1);
           carrying = true;
           carryingGolden = !!b.golden;
@@ -1162,7 +1163,7 @@ import { resolveInputDirection, screenInputToWorldMove, easedVelocity, easedPitc
 
     // --- feed pig ---
     if (carrying && pigState === 'idle'){
-      if (withinScreenRange(dragon.x,dragon.y,pig.x,pig.y, dragon.size*0.5 + pig.baseSize*0.6*pigVisualScale())){
+      if (withinScreenRange(dragon.x,dragon.y,pig.x,pig.y, meleeFeedRadius(dragon.size, pig.baseSize, pigVisualScale()))){
         carrying = false;
         const golden = carryingGolden;
         carryingGolden = false;
@@ -1174,7 +1175,7 @@ import { resolveInputDirection, screenInputToWorldMove, easedVelocity, easedPitc
     for (let i=burgerProjectiles.length-1;i>=0;i--){
       const b = burgerProjectiles[i];
       b.x += b.vx*frameScale; b.y += b.vy*frameScale; b.rot += 0.3*frameScale; b.life -= frameScale;
-      if (pigState === 'idle' && withinScreenRange(b.x,b.y,pig.x,pig.y, pig.baseSize*0.6*pigVisualScale())){
+      if (pigState === 'idle' && withinScreenRange(b.x,b.y,pig.x,pig.y, projectileFeedRadius(pig.baseSize, pigVisualScale()))){
         burgerProjectiles.splice(i,1);
         feedPigSuccess(b.golden);
         continue;
@@ -1257,7 +1258,7 @@ import { resolveInputDirection, screenInputToWorldMove, easedVelocity, easedPitc
     // collect landed coins
     for (let i=coinDrops.length-1;i>=0;i--){
       const c = coinDrops[i];
-      if (c.landed && dist(dragon.x,dragon.y,c.x,c.y) < dragon.size*0.55+14){
+      if (c.landed && dist(dragon.x,dragon.y,c.x,c.y) < pickupRadius(dragon.size)){
         coinDrops.splice(i,1);
         score += COIN_SCORE;
         coins += 1;

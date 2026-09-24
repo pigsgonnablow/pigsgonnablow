@@ -110,6 +110,20 @@ export const feedReward = (golden) => ({
   score: golden ? FEED_SCORE.golden : FEED_SCORE.normal,
 });
 
+// ---------- pickup / feed radii ----------
+// Extra pixels of pickup range beyond half the dragon's size, shared by ground-burger pickup
+// and landed-coin pickup so the two can't drift apart (they used to repeat this literal).
+export const PICKUP_RADIUS_PAD = 14;
+export const pickupRadius = (dragonSize) => dragonSize * 0.55 + PICKUP_RADIUS_PAD;
+
+// Walk-in feed range: reaches out from both the dragon's and the pig's own size, so a bigger
+// dragon or a pig mid-jump-punch (pigVisualScale) is easier to land a feed on.
+export const meleeFeedRadius = (dragonSize, pigBaseSize, pigScale) =>
+  dragonSize * 0.5 + pigBaseSize * 0.6 * pigScale;
+
+// A thrown burger is a point, not a body, so its feed range only comes from the pig's side.
+export const projectileFeedRadius = (pigBaseSize, pigScale) => pigBaseSize * 0.6 * pigScale;
+
 // ---------- combat ----------
 // Is the dragon caught by the shockwave right now? The wave is a ring: you're hit if you're
 // within the front edge (radius + half your size) but not so far inside it that it's already

@@ -28,6 +28,12 @@ Running log of notable changes, kept during dev sessions for reference.
   the exact class of bug that was fixed once already). Verified with a 60,000-case differential
   check against the original inline formulas -- all exact matches. Cache bumped to
   `burger-pig-v29`.
+- **Pickup/feed hit radii extracted into `js/rules.js`**: `pickupRadius` (ground-burger pickup
+  and landed-coin pickup previously repeated the same `dragon.size*0.55+14` literal
+  independently -- now one function, so they can't drift apart), `meleeFeedRadius` (walk-in
+  feed) and `projectileFeedRadius` (thrown-burger feed). Verified with a 60,000-case
+  differential check against the original inline formulas -- all exact matches. Cache bumped to
+  `burger-pig-v30`.
 
 ## 2026-09-21 (game rules moved out of index.html)
 

@@ -132,6 +132,38 @@ describe('coins and scoring', () => {
   });
 });
 
+describe('pickup / feed radii', () => {
+  it('pickup radius grows with dragon size, plus a fixed pad', () => {
+    expect(R.pickupRadius(0)).toBe(R.PICKUP_RADIUS_PAD);
+    expect(R.pickupRadius(40)).toBeGreaterThan(R.pickupRadius(20));
+  });
+
+  it('ground-burger pickup and coin pickup share the exact same radius', () => {
+    // Regression guard: these two used to repeat the same literal formula independently --
+    // asserting they're both calls to the one shared function keeps them from drifting apart.
+    for (const size of [0, 20, 42, 80]) expect(R.pickupRadius(size)).toBe(size * 0.55 + R.PICKUP_RADIUS_PAD);
+  });
+
+  it('melee feed radius grows with both the dragon and the pig (scaled)', () => {
+    const base = R.meleeFeedRadius(40, 60, 1);
+    expect(R.meleeFeedRadius(80, 60, 1)).toBeGreaterThan(base);
+    expect(R.meleeFeedRadius(40, 60, 2)).toBeGreaterThan(base); // pig mid-punch (pigVisualScale > 1) is easier to feed
+  });
+
+  it('a thrown burger only reaches as far as the pig\'s own (scaled) size -- the dragon is irrelevant to a point', () => {
+    expect(R.projectileFeedRadius(60, 1)).toBe(60 * 0.6);
+    expect(R.projectileFeedRadius(60, 2)).toBe(R.projectileFeedRadius(60, 1) * 2);
+  });
+
+  it('melee range is always at least as generous as the projectile-only range, for the same pig', () => {
+    for (const dragonSize of [20, 42, 80]) {
+      for (const pigScale of [0.5, 1, 1.5]) {
+        expect(R.meleeFeedRadius(dragonSize, 60, pigScale)).toBeGreaterThanOrEqual(R.projectileFeedRadius(60, pigScale));
+      }
+    }
+  });
+});
+
 describe('formatTime', () => {
   it.each([
     [0, '0:00.0'],
