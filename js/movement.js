@@ -70,3 +70,28 @@ export function clampToWorld(x, y, halfSize, W, H) {
     y: Math.max(halfSize, Math.min(H - halfSize, y)),
   };
 }
+
+// ---------- on-screen joystick ----------
+// Clamps a raw pointer offset from the joystick's own center to its max radius (its knob can
+// never be dragged outside the base), then normalizes each axis to [-1,1]. Shared by the
+// pointerdown/pointermove handlers, which both feed the same (dx,dy) math in.
+export function clampJoystickVector(dx, dy, maxDist) {
+  const d = Math.hypot(dx, dy);
+  if (d > maxDist) { dx = dx / d * maxDist; dy = dy / d * maxDist; }
+  return { dx: dx / maxDist, dy: dy / maxDist };
+}
+
+// ---------- letterbox-anchored overlay controls ----------
+// The canvas is letterboxed inside its wrapper (its aspect ratio rarely matches the
+// viewport's), so a fixed-size UI element anchored to the canvas's bottom edge should sit in
+// the empty letterbox strip below it when there's room, rather than overlaying the game itself
+// -- and fall back to overlaying the corner when the canvas fills the viewport height and there
+// is no such room. Shared by the joystick and throw button (previously each computed this
+// separately, and had the same "lands in the letterbox gap" bug before it was fixed).
+export function bottomAnchoredTop(rectBottom, innerHeight, elHeight, margin) {
+  const spaceBelow = innerHeight - rectBottom;
+  if (spaceBelow >= elHeight + margin) {
+    return rectBottom + Math.max((spaceBelow - elHeight) / 2, margin / 2);
+  }
+  return rectBottom - margin - elHeight;
+}

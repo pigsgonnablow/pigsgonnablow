@@ -21,6 +21,13 @@ Running log of notable changes, kept during dev sessions for reference.
   plus a 100,000-frame differential check against the original inline formulas (all exact
   matches) before wiring it in. `index.html` still owns `keys`/joystick DOM state and calls into
   these instead of computing the formulas itself. Cache bumped to `burger-pig-v28`.
+- **Joystick clamp + letterbox-anchored overlay positioning extracted too**, into the same
+  `js/movement.js`: the joystick's pointer-offset-to-vector clamp, and the shared
+  bottom-anchoring math the joystick/throw-button overlays use to sit in the letterbox strip
+  below the canvas instead of on top of the game (previously duplicated between the two, and
+  the exact class of bug that was fixed once already). Verified with a 60,000-case differential
+  check against the original inline formulas -- all exact matches. Cache bumped to
+  `burger-pig-v29`.
 
 ## 2026-09-21 (game rules moved out of index.html)
 

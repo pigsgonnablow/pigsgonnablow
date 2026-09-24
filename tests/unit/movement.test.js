@@ -161,6 +161,56 @@ describe('easedPitch', () => {
   });
 });
 
+describe('clampJoystickVector', () => {
+  it('a pointer inside the base radius is normalized as-is', () => {
+    expect(M.clampJoystickVector(30, 0, 60)).toEqual({ dx: 0.5, dy: 0 });
+  });
+
+  it('a pointer beyond the base radius is pulled in to the edge, keeping direction', () => {
+    const r = M.clampJoystickVector(120, 0, 60); // straight right, twice the radius
+    expect(r.dx).toBeCloseTo(1);
+    expect(r.dy).toBeCloseTo(0);
+  });
+
+  it('preserves direction for an off-axis overshoot', () => {
+    const r = M.clampJoystickVector(300, 400, 60); // 3-4-5 triangle, far outside the radius
+    expect(r.dx).toBeCloseTo(0.6);
+    expect(r.dy).toBeCloseTo(0.8);
+    expect(Math.hypot(r.dx, r.dy)).toBeCloseTo(1);
+  });
+
+  it('dead center stays dead center', () => {
+    expect(M.clampJoystickVector(0, 0, 60)).toEqual({ dx: 0, dy: 0 });
+  });
+});
+
+describe('bottomAnchoredTop', () => {
+  const innerHeight = 800, elH = 120, margin = 24;
+
+  it('sits in the letterbox strip, centered in the leftover space, when there is enough room', () => {
+    const rectBottom = 500; // 300px of space below
+    const top = M.bottomAnchoredTop(rectBottom, innerHeight, elH, margin);
+    expect(top).toBe(rectBottom + (300 - elH) / 2);
+    expect(top + elH).toBeLessThanOrEqual(innerHeight); // never overflows past the viewport
+  });
+
+  it('falls back to overlaying the canvas corner when the letterbox strip is too small', () => {
+    const rectBottom = 780; // only 20px of space below, less than elH+margin
+    expect(M.bottomAnchoredTop(rectBottom, innerHeight, elH, margin)).toBe(rectBottom - margin - elH);
+  });
+
+  it('exactly enough room (the boundary) still counts as "enough"', () => {
+    const rectBottom = innerHeight - (elH + margin);
+    const top = M.bottomAnchoredTop(rectBottom, innerHeight, elH, margin);
+    expect(top).toBe(rectBottom + margin / 2); // (spaceBelow - elH) / 2 == margin/2 exactly here
+  });
+
+  it('never places the element above the canvas bottom edge, however cramped', () => {
+    const top = M.bottomAnchoredTop(795, innerHeight, elH, margin); // 5px of space, way too little
+    expect(top).toBeLessThan(795);
+  });
+});
+
 describe('clampToWorld', () => {
   it('passes a point through unchanged when it is already inside the playable rect', () => {
     expect(M.clampToWorld(300, 400, 20, 600, 1000)).toEqual({ x: 300, y: 400 });

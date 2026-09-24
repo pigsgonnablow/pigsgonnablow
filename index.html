@@ -307,7 +307,7 @@ import {
   createCoinBatches, levelFor, isVictory, dragonSizeFor, shockParamsFor, coinLifeFramesFor, jumpDurationFor,
   burgersToFullFor, coinCountFor, feedReward, formatTime, angleToArrow
 } from './js/rules.js';
-import { resolveInputDirection, screenInputToWorldMove, easedVelocity, easedPitch, clampToWorld } from './js/movement.js';
+import { resolveInputDirection, screenInputToWorldMove, easedVelocity, easedPitch, clampToWorld, clampJoystickVector, bottomAnchoredTop } from './js/movement.js';
 
 (function(){
   const canvas = document.getElementById('game');
@@ -750,11 +750,9 @@ import { resolveInputDirection, screenInputToWorldMove, easedVelocity, easedPitc
     const rect = joystick.getBoundingClientRect();
     const cx = rect.left + rect.width/2, cy = rect.top + rect.height/2;
     const maxDist = rect.width/2;
-    let dx = e.clientX - cx, dy = e.clientY - cy;
-    const d = Math.hypot(dx,dy);
-    if (d > maxDist){ dx = dx/d*maxDist; dy = dy/d*maxDist; }
-    joyDX = dx/maxDist; joyDY = dy/maxDist;
-    joystickKnob.style.transform = `translate(${dx}px, ${dy}px)`;
+    const raw = clampJoystickVector(e.clientX - cx, e.clientY - cy, maxDist);
+    joyDX = raw.dx; joyDY = raw.dy;
+    joystickKnob.style.transform = `translate(${raw.dx*maxDist}px, ${raw.dy*maxDist}px)`;
   }
   joystick.addEventListener('pointerdown', e => {
     e.preventDefault();
@@ -785,30 +783,16 @@ import { resolveInputDirection, screenInputToWorldMove, easedVelocity, easedPitc
   function positionJoystick(){
     const rect = canvas.getBoundingClientRect();
     const joySize = 120, margin = 24;
-    const spaceBelow = window.innerHeight - rect.bottom;
     joystick.style.left = Math.round(rect.left + margin) + 'px';
-    if (spaceBelow >= joySize + margin){
-      // enough empty letterbox space below the canvas — sit there instead of over the game
-      const top = rect.bottom + Math.max((spaceBelow - joySize) / 2, margin / 2);
-      joystick.style.top = Math.round(top) + 'px';
-    } else {
-      // no letterbox room (canvas fills the viewport height) — fall back to overlaying the corner
-      joystick.style.top = Math.round(rect.bottom - margin - joySize) + 'px';
-    }
+    joystick.style.top = Math.round(bottomAnchoredTop(rect.bottom, window.innerHeight, joySize, margin)) + 'px';
   }
   // Mirrors positionJoystick(), anchoring the throw button to the canvas's bottom-right
   // instead, so it also lands in the letterbox space rather than over the game.
   function positionThrowBtn(){
     const rect = canvas.getBoundingClientRect();
     const btnH = 64, margin = 24;
-    const spaceBelow = window.innerHeight - rect.bottom;
     throwBtn.style.right = Math.round(window.innerWidth - rect.right + margin) + 'px';
-    if (spaceBelow >= btnH + margin){
-      const top = rect.bottom + Math.max((spaceBelow - btnH) / 2, margin / 2);
-      throwBtn.style.top = Math.round(top) + 'px';
-    } else {
-      throwBtn.style.top = Math.round(rect.bottom - margin - btnH) + 'px';
-    }
+    throwBtn.style.top = Math.round(bottomAnchoredTop(rect.bottom, window.innerHeight, btnH, margin)) + 'px';
   }
   // Same letterboxing issue as the joystick/throw button above: #hud was pinned to the
   // viewport's top edge via CSS, so on a viewport whose aspect ratio doesn't match the
