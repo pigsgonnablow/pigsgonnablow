@@ -118,43 +118,53 @@ describe('REGRESSION: stored XSS via leaderboard rows', () => {
   });
 });
 
+// Anonymous submission goes through the submit-score Edge Function (see
+// supabase_scores_rate_limit_by_ip.sql for why: it's the only thing that sees this caller's
+// real IP, which is what lets the server rate-limit per caller instead of globally). Every test
+// below supplies its own `functions['submit-score']` result rather than relying on
+// createFakeSupabase()'s default ({ data: null, error: null }), since a real submit-score
+// success looks like { data: { ok: true }, error: null } -- `data: null` is what a *failure*
+// looks like here.
+const OK = { data: { ok: true }, error: null };
+
 describe('submitting', () => {
-  it("guest submit sends ONLY { name, score } -- anon's column grant allows nothing else", async () => {
-    const { client, log } = createFakeSupabase();
+  it("guest submit calls submit-score with ONLY { name, score }", async () => {
+    const { client, log } = createFakeSupabase({ functions: { 'submit-score': OK } });
     const lb = createLeaderboard({ auth: makeAuth(client), elements });
     lb.onGameOver(420);
     elements.nameInput.value = 'Bob';
     elements.submitBtn.click();
     await flush();
-    expect(log.inserts).toEqual([{ table: 'scores', row: { name: 'Bob', score: 420 } }]);
-    expect(Object.keys(log.inserts[0].row).sort()).toEqual(['name', 'score']);
+    expect(log.invokes).toEqual([{ name: 'submit-score', opts: { body: { name: 'Bob', score: 420 } } }]);
+    expect(Object.keys(log.invokes[0].opts.body).sort()).toEqual(['name', 'score']);
     expect(log.rpcs).toEqual([]);
+    expect(log.inserts).toEqual([]);
     expect(elements.statusEl.textContent).toBe('Submitted!');
   });
 
   it('trims and caps guest names at 12 characters', async () => {
-    const { client, log } = createFakeSupabase();
+    const { client, log } = createFakeSupabase({ functions: { 'submit-score': OK } });
     const lb = createLeaderboard({ auth: makeAuth(client), elements });
     lb.onGameOver(1);
     elements.nameInput.value = '   abcdefghijklmnop   ';
     elements.submitBtn.click();
     await flush();
-    expect(log.inserts[0].row.name).toBe('abcdefghijkl');
+    expect(log.invokes[0].opts.body.name).toBe('abcdefghijkl');
   });
 
   it('rejects an empty guest name without contacting the server', async () => {
-    const { client, log } = createFakeSupabase();
+    const { client, log } = createFakeSupabase({ functions: { 'submit-score': OK } });
     const lb = createLeaderboard({ auth: makeAuth(client), elements });
     lb.onGameOver(1);
     elements.nameInput.value = '   ';
     elements.submitBtn.click();
     await flush();
-    expect(log.inserts).toEqual([]);
+    expect(log.invokes).toEqual([]);
     expect(elements.statusEl.textContent).toBe('Enter a name first.');
   });
 
   it('a second click after a successful submit does nothing', async () => {
-    const { client, log } = createFakeSupabase();
+    const { client, log } = createFakeSupabase({ functions: { 'submit-score': OK } });
     const lb = createLeaderboard({ auth: makeAuth(client), elements });
     lb.onGameOver(5);
     elements.nameInput.value = 'Bob';
@@ -162,7 +172,7 @@ describe('submitting', () => {
     await flush();
     elements.submitBtn.click();
     await flush();
-    expect(log.inserts).toHaveLength(1);
+    expect(log.invokes).toHaveLength(1);
   });
 
   it("REGRESSION: after submitting, the guest's own row is the one highlighted (you!)", async () => {
@@ -173,7 +183,10 @@ describe('submitting', () => {
       { user_id: null, name: 'Bob', score: 9000, avatar: null, color_filter: null }, // a different Bob
       { user_id: null, name: 'Bob', score: 420, avatar: null, color_filter: null },  // this run
     ];
-    const { client } = createFakeSupabase({ tables: { scores: { select: { data: board, error: null } } } });
+    const { client } = createFakeSupabase({
+      tables: { scores: { select: { data: board, error: null } } },
+      functions: { 'submit-score': OK },
+    });
     const lb = createLeaderboard({ auth: makeAuth(client), elements });
     lb.onGameOver(420);
     elements.nameInput.value = 'Bob';
@@ -186,13 +199,16 @@ describe('submitting', () => {
 
   it('a new run clears the previous run\'s highlight and lets the player submit again', async () => {
     const board = [{ user_id: null, name: 'Bob', score: 420, avatar: null, color_filter: null }];
-    const { client, log } = createFakeSupabase({ tables: { scores: { select: { data: board, error: null } } } });
+    const { client, log } = createFakeSupabase({
+      tables: { scores: { select: { data: board, error: null } } },
+      functions: { 'submit-score': OK },
+    });
     const lb = createLeaderboard({ auth: makeAuth(client), elements });
     lb.onGameOver(420);
     elements.nameInput.value = 'Bob';
     elements.submitBtn.click();
     await flush();
-    expect(log.inserts).toHaveLength(1);
+    expect(log.invokes).toHaveLength(1);
 
     lb.onGameOver(50); // next run -- alreadySubmitted/justSubmittedName must reset
     await flush();
@@ -201,11 +217,26 @@ describe('submitting', () => {
     elements.nameInput.value = 'Bob';
     elements.submitBtn.click();
     await flush();
-    expect(log.inserts.map((i) => i.row.score)).toEqual([420, 50]);
+    expect(log.invokes.map((i) => i.opts.body.score)).toEqual([420, 50]);
   });
 
-  it('a failed guest submit re-enables the button', async () => {
-    const { client } = createFakeSupabase({ tables: { scores: { insert: { error: { message: 'denied' } } } } });
+  it('a failed guest submit (server error) re-enables the button', async () => {
+    const { client } = createFakeSupabase({
+      functions: { 'submit-score': { data: null, error: { message: 'denied' } } },
+    });
+    const lb = createLeaderboard({ auth: makeAuth(client), elements });
+    lb.onGameOver(5);
+    elements.nameInput.value = 'Bob';
+    elements.submitBtn.click();
+    await flush();
+    expect(elements.submitBtn.disabled).toBe(false);
+    expect(elements.statusEl.textContent).toContain("Couldn't submit");
+  });
+
+  it('a failed guest submit (rate-limited: ok:false with no error) re-enables the button', async () => {
+    const { client } = createFakeSupabase({
+      functions: { 'submit-score': { data: { ok: false, error: 'too many' }, error: null } },
+    });
     const lb = createLeaderboard({ auth: makeAuth(client), elements });
     lb.onGameOver(5);
     elements.nameInput.value = 'Bob';

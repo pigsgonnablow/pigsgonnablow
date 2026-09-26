@@ -93,8 +93,13 @@ export function createLeaderboard({ url, anonKey, auth, elements }){
     }
     submitBtn.disabled = true;
     statusEl.textContent = 'Submitting…';
-    const { error } = await sb.from('scores').insert({ name, score });
-    if (error){
+    // Goes through the submit-score Edge Function rather than a direct .insert() -- that
+    // function is the only thing that can see this caller's real IP, which is what lets the
+    // server apply a genuine per-caller rate limit instead of the single global budget a direct
+    // table write would be stuck with (see supabase_scores_rate_limit_by_ip.sql).
+    const { data, error } = await sb.functions.invoke('submit-score', { body: { name, score } });
+    if (error || !data?.ok){
+      console.error('[leaderboard] submit-score failed:', error, data);
       statusEl.textContent = "Couldn't submit — try again.";
       submitBtn.disabled = false;
       return;

@@ -28,6 +28,7 @@ const SCHEMA_FILES = [
   'supabase_remove_griffin_schema.sql',
   'supabase_lockdown_direct_writes.sql',
   'supabase_owned_skins_revocation.sql',
+  'supabase_scores_rate_limit_by_ip.sql',
 ];
 const sqlOf = (f) => readFileSync(resolve(ROOT, f), 'utf8');
 
@@ -96,6 +97,10 @@ describe('the schema files', () => {
 
   it('the lockdown file is safe to re-run', async () => {
     await expect(db.exec(sqlOf('supabase_lockdown_direct_writes.sql'))).resolves.not.toThrow();
+  });
+
+  it('the scores-rate-limit-by-ip file is safe to re-run', async () => {
+    await expect(db.exec(sqlOf('supabase_scores_rate_limit_by_ip.sql'))).resolves.not.toThrow();
   });
 
   it('REGRESSION: on a fresh database the grants at the END of the lockdown file really land', async () => {
@@ -171,15 +176,22 @@ describe('REGRESSION: direct writes to profiles are impossible (free-skin escala
 });
 
 describe('REGRESSION: leaderboard rows can only carry name + score from a client (stored XSS)', () => {
-  it('anon can insert a plain guest score', async () => {
+  // REGRESSION (second adversarial pass): anon used to be able to INSERT directly (scores_anon_
+  // insert). That's exactly what let a scripted flood bypass any per-identity rate limit --
+  // see supabase_scores_rate_limit_by_ip.sql -- so the privilege is gone entirely now.
+  it('anon can no longer insert directly at all', async () => {
     const r = await as('anon', null, () => attempt(`insert into public.scores (name, score) values ('Guest', 42)`));
-    expect(r.code).toBeUndefined();
+    expect(r.code).toBe(INSUFFICIENT_PRIVILEGE);
   });
 
-  it.each(['avatar', 'color_filter', 'user_id'])('anon cannot set scores.%s', async (col) => {
-    const value = col === 'user_id' ? `'${U1}'` : `'"><img src=x onerror=alert(1)>'`;
-    const r = await as('anon', null, () => attempt(`insert into public.scores (name, score, ${col}) values ('Evil', 1, ${value})`));
-    expect(r.code).toBe(INSUFFICIENT_PRIVILEGE);
+  it('submit_anonymous_score is the only way in now, and its signature only ever accepts name + score', async () => {
+    // Simulates what the submit-score Edge Function's service-role client does -- see
+    // supabase_scores_rate_limit_by_ip.sql for why this can't be reached by anon/authenticated
+    // directly. There's no way to smuggle avatar/color_filter/user_id through it: the function
+    // simply has no parameter for them.
+    await db.query(`select public.submit_anonymous_score('Guest', 42, null)`);
+    const row = await one("select name, score, avatar, color_filter, user_id from public.scores where name = 'Guest'");
+    expect(row).toEqual({ name: 'Guest', score: 42, avatar: null, color_filter: null, user_id: null });
   });
 
   it('anon cannot UPDATE any score', async () => {
@@ -519,13 +531,13 @@ describe('REGRESSION: the skins catalog is read-only to clients (free-skin escal
 
 describe('guest score bounds are enforced server-side, not just by the client', () => {
   // js/leaderboard.js trims the typed name to 12 chars and only ever sends what the run
-  // actually scored -- neither is a control, since anon can POST /rest/v1/scores directly.
-  const insert = (name, score) =>
-    as('anon', null, () => attempt('insert into public.scores (name, score) values ($1, $2)', [name, score]));
-  const rejected = (r) => expect(String(r.code)).toMatch(/42501|23514/); // RLS check or table check constraint
+  // actually scored -- neither is a control, since anyone can call submit_anonymous_score (via
+  // the submit-score Edge Function, or -- see that function's own comment -- even directly) with
+  // whatever they like.
+  const submit = (name, score) => attempt('select public.submit_anonymous_score($1, $2, null)', [name, score]);
 
   it('accepts a legitimate guest row at the limits', async () => {
-    expect((await insert('abcdefghijkl', 100_000)).code).toBeUndefined();
+    expect((await submit('abcdefghijkl', 100_000)).code).toBeUndefined();
   });
 
   it.each([
@@ -534,18 +546,23 @@ describe('guest score bounds are enforced server-side, not just by the client', 
     ['a score above the cap', 'Cheater', 100_001],
     ['a negative score', 'Cheater', -5],
   ])('rejects %s', async (_label, name, score) => {
-    rejected(await insert(name, score));
+    const r = await submit(name, score);
+    expect(r.rows).toBeUndefined();
+    expect(r.message).toMatch(/invalid (name|score)/);
   });
 
-  it('rejects a score above the cap even at the old (still-present, now-redundant) 1,000,000 column check', async () => {
-    // The original check constraint (score <= 1,000,000) is still there underneath the new,
-    // tighter 100,000 one added by supabase_lockdown_direct_writes.sql -- this just confirms
-    // the two stack rather than one silently replacing the other.
-    rejected(await insert('Cheater', 1_000_001));
+  it("the table's own 1,000,000-ceiling check constraint still backs the RPC's tighter 100,000 one (defense in depth)", async () => {
+    // submit_anonymous_score's own validation catches anything over 100,000 before this constraint
+    // is ever reached in practice (there's no client path that skips the RPC's own check -- see
+    // its comment in supabase_scores_rate_limit_by_ip.sql) -- this just confirms the table-level
+    // backstop from supabase_lockdown_direct_writes.sql is still there too, stacked rather than
+    // silently replaced, in case the RPC's own check were ever loosened by mistake.
+    const r = await attempt("insert into public.scores (name, score) values ('Cheater', 1000001)");
+    expect(String(r.code)).toBe('23514');
   });
 
   it('many anonymous rows coexist (the unique index on user_id must not apply to NULLs)', async () => {
-    for (let i = 0; i < 3; i++) expect((await insert('Guest', 5)).code).toBeUndefined();
+    for (let i = 0; i < 3; i++) expect((await submit('Guest', 5)).code).toBeUndefined();
     const r = await one("select count(*)::int as n from public.scores where user_id is null and name = 'Guest'");
     expect(r.n).toBeGreaterThanOrEqual(3);
   });
@@ -563,31 +580,110 @@ describe('guest score bounds are enforced server-side, not just by the client', 
 // is already capped to one row per account by the unique index, so it's deliberately exempt --
 // see the 'REGRESSION: an account never accumulates more than one row' test above.
 //
-// Deliberately the LAST describe block in this file: the rate limit is a single global budget
-// shared by the whole db connection this file uses (see supabase_lockdown_direct_writes.sql
-// for why there's no per-identity budget to throttle instead), and every anon insert earlier
-// in this file already spent a small amount of it. Draining the rest here, last, means this
-// can assert the cutoff exists without starving any earlier test's own anon insert of budget.
+// Uses its own fresh database (rather than the shared `db` every other describe block in this
+// file uses) so the exact number of submissions before the budget cuts off is a reliable
+// assertion, unaffected by how many submit_anonymous_score calls happen to run in describe
+// blocks elsewhere in this file.
 describe('REGRESSION: anonymous score submission is rate-limited', () => {
-  const insertAnon = (n) => as('anon', null, () =>
-    attempt('insert into public.scores (name, score) values ($1, $2)', [`Flood${n}`, 1]));
+  let rdb;
+  beforeAll(async () => {
+    rdb = await freshDb();
+    // Needed only for the "signed-in submission is exempt" test below (submit_personal_best
+    // requires a profile row) -- this rdb is a from-scratch database, unlike the shared `db`
+    // used everywhere else in this file, which already has one from an earlier describe block.
+    await rdb.query("insert into public.profiles (user_id, display_name) values ($1, 'Test')", [U1]);
+  }, 120_000);
+  afterAll(async () => { await rdb?.close(); });
 
-  it('a burst of anonymous inserts is eventually rejected within the same window', async () => {
-    let allowed = 0;
-    let rejectedAt = null;
-    for (let i = 0; i < 25; i++) {
-      const r = await insertAnon(i);
-      if (r.code) { rejectedAt = i; break; }
-      allowed++;
+  const submit = (name, score, ipHash = null) =>
+    rdb.query('select public.submit_anonymous_score($1, $2, $3)', [name, score, ipHash])
+      .then(() => ({ ok: true }))
+      .catch((e) => ({ ok: false, code: e.code, message: e.message }));
+
+  // Local equivalents of the file's `as`/`attempt` helpers, bound to this describe block's own
+  // rdb instead of the shared module-level `db`.
+  async function asR(role, uid, fn) {
+    await rdb.query("select set_config('request.jwt.claims', $1, false)", [uid ? JSON.stringify({ sub: uid, role }) : '']);
+    await rdb.exec(`set role ${role}`);
+    try {
+      return await fn();
+    } finally {
+      await rdb.exec('reset role');
+      await rdb.query("select set_config('request.jwt.claims', '', false)");
     }
-    expect(rejectedAt, 'expected the burst to be cut off within 25 inserts').not.toBeNull();
-    expect(allowed).toBeLessThan(25);
+  }
+  async function attemptR(sql, params = []) {
+    try {
+      const r = await rdb.query(sql, params);
+      return { rows: r.rows };
+    } catch (e) {
+      return { code: e.code, message: e.message };
+    }
+  }
+
+  // REGRESSION (second adversarial pass): the pre-existing global budget (further down this
+  // file) locks out every guest at once as soon as ONE flooder hits it -- worse than the spam it
+  // was meant to stop. This is the fix: a per-caller budget layered on top, keyed by the hash the
+  // submit-score Edge Function computes from the caller's real IP. Runs before the global-budget
+  // block below on purpose: that block deliberately drains the shared rdb's global budget to
+  // zero, which would otherwise make every one of these per-IP submissions fail on the global
+  // check before its own per-IP budget was ever exercised.
+  describe('the per-IP-hash budget (supabase_scores_rate_limit_by_ip.sql)', () => {
+    it('one IP hash gets cut off well before the shared global budget would', async () => {
+      let allowed = 0;
+      let rejectedAt = null;
+      for (let i = 0; i < 10; i++) {
+        const r = await submit(`Flooder${i}`, 1, 'attacker-ip-hash');
+        if (!r.ok) { rejectedAt = i; break; }
+        allowed++;
+      }
+      expect(rejectedAt).not.toBeNull();
+      expect(allowed).toBe(5);
+      expect(rejectedAt).toBeLessThan(19); // i.e. this, not the 20-wide global budget, is what fired
+    });
+
+    it("a DIFFERENT IP hash is completely unaffected by the first one's cutoff", async () => {
+      const r = await submit('Guest', 1, 'someone-elses-ip-hash');
+      expect(r.ok).toBe(true);
+    });
+
+    it('a null IP hash (bypassing the intended Edge Function path) falls back to the global-only budget, not a regression', async () => {
+      // Documents the known, non-attacker-triggerable ceiling described in
+      // supabase_scores_rate_limit_by_ip.sql: SQL alone cannot verify an HTTP-layer fact like a
+      // caller's real IP, so a caller hitting this RPC directly (skipping the Edge Function that
+      // would normally supply a real hash) can dodge the per-IP check -- but not any worse than
+      // before this file existed, since it then falls straight back to the pre-existing global
+      // budget, which the next describe block covers -- and has plenty of headroom left at this
+      // point regardless (11 of 20 spent by the two tests above).
+      for (let i = 0; i < 5; i++) {
+        const r = await submit(`NullHash${i}`, 1, null);
+        expect(r.ok, `submission ${i} with no ip_hash`).toBe(true);
+      }
+    });
   });
 
-  it('a signed-in submission is exempt from the same budget (already capped to one row per account)', async () => {
-    // The loop above just exhausted the anon budget entirely -- a signed-in submit still works.
-    const call = (uid, sql, params) => as('authenticated', uid, () => attempt(sql, params));
-    const r = await call(U1, 'select public.submit_personal_best($1) as r', [1]);
-    expect(r.code).toBeUndefined();
+  describe('the global budget (no usable per-caller identity)', () => {
+    it('a burst of anonymous submissions is eventually rejected within the same window (the per-IP block above already spent some of it)', async () => {
+      let allowed = 0;
+      let rejectedAt = null;
+      for (let i = 0; i < 25; i++) {
+        const r = await submit(`Flood${i}`, 1, `flood-ip-${i}`); // distinct IPs -- isolates the global cap from the per-IP one
+        if (!r.ok) { rejectedAt = i; break; }
+        allowed++;
+      }
+      expect(rejectedAt, 'expected the burst to be cut off within 25 submissions').not.toBeNull();
+      expect(allowed).toBeLessThan(25);
+    });
+
+    it('a signed-in submission is exempt from the same budget (already capped to one row per account)', async () => {
+      // The loop above just exhausted the global budget entirely -- a signed-in submit still works.
+      const r = await asR('authenticated', U1, () => attemptR('select public.submit_personal_best($1) as r', [1]));
+      expect(r.code).toBeUndefined();
+    });
+
+    it('direct anon insert stays blocked no matter what -- the RPC above is the only way in or around it', async () => {
+      const r = await asR('anon', null, () => attemptR(`insert into public.scores (name, score) values ('Sneaky', 1)`));
+      expect(r.code).toBe(INSUFFICIENT_PRIVILEGE);
+    });
   });
 });

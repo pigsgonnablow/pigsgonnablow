@@ -44,7 +44,13 @@ Edge Function code changes need their own deploy, independent of both the above 
 ```
 npx supabase functions deploy stripe-webhook --no-verify-jwt
 npx supabase functions deploy create-checkout
+npx supabase functions deploy submit-score
 ```
+`submit-score` needs one secret beyond the platform-provided `SUPABASE_URL`/
+`SUPABASE_SERVICE_ROLE_KEY`: `SCORE_IP_HASH_SALT` (any long random string, e.g. `openssl rand
+-hex 32`), set once via `npx supabase secrets set SCORE_IP_HASH_SALT=...`. It's only used to
+salt the per-caller IP hash the per-IP rate limit is keyed on (see
+`supabase_scores_rate_limit_by_ip.sql`) -- a raw IP is never sent to or stored in the database.
 
 ## Tests
 The game itself has no build step, but there's dev-only test tooling (`npm install` once):

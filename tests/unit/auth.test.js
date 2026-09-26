@@ -50,6 +50,24 @@ describe('init', () => {
     expect(fired).toBe(1); // not 0 -- no await, no flush
   });
 
+  it('REGRESSION: a listener that throws does not stop other listeners from running, or reject init()', async () => {
+    // notify() used to call every onChange listener with nothing catching what they do -- one
+    // broken UI-update callback (leaderboard/shop/myskins/index.html's own dragon-skin sync) would
+    // throw out of notify(), which (called from inside init()'s async body) turned into init()'s
+    // own promise rejecting. Both real call sites treat that as fire-and-forget with no .catch(),
+    // so this used to surface as an unhandledrejection over what's often a small, unrelated
+    // rendering bug -- popping the global fatal-error banner over an otherwise-working game.
+    const { client } = createFakeSupabase();
+    window.supabase = { createClient: () => client };
+    const auth = createAuth({ url: 'u', anonKey: 'k' });
+    let secondListenerFired = 0;
+    auth.onChange(() => { throw new Error('boom, a bug in some unrelated UI callback'); });
+    auth.onChange(() => { secondListenerFired++; });
+    await auth.init(); // must not reject -- a throw here would fail this test on its own
+    expect(secondListenerFired).toBeGreaterThanOrEqual(1);
+    expect(console.error).toHaveBeenCalledWith('[auth] a listener threw:', expect.any(Error));
+  });
+
   it('a stored session loads the profile', async () => {
     const { auth, states } = build({
       auth: { getSession: { data: { session: SESSION }, error: null } },

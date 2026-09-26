@@ -2,6 +2,41 @@
 
 Running log of notable changes, kept during dev sessions for reference.
 
+## 2026-09-26 (per-IP rate limiting, and the error handler's own blind spots)
+
+The remaining two items from the adversarial re-review that found the frame-buster/CDN issues
+below:
+
+- **The score rate limiter was a single GLOBAL budget (20/60s across every guest combined) --
+  a denial-of-service lever, not just a spam throttle.** A script making one request every 3
+  seconds could hold it at cap forever, rejecting every *other* guest's submission right along
+  with its own. Fixed by moving anonymous score submission behind a new Edge Function
+  (`submit-score`) -- the one place in this stack that ever sees a caller's real IP -- which
+  hashes it (salted; never stores a raw IP) and calls a new `submit_anonymous_score()` RPC that
+  enforces a genuine per-IP-hash budget (5/60s) on top of the pre-existing global one. The old
+  direct "anon can INSERT into scores" policy is gone -- that's exactly what let a flood bypass
+  any per-identity check in the first place. New file: `supabase_scores_rate_limit_by_ip.sql`.
+  A caller could still hit the RPC directly and pass no IP hash, falling back to the old
+  global-only behavior -- not preventable from SQL alone (there's no way to verify an HTTP-layer
+  fact like a caller's IP at that layer), but not a regression either, since that's exactly the
+  pre-existing defense.
+- **The global error handler (added two sessions ago) didn't cover the one failure class it was
+  written for.** Its listeners were registered *inside* the module script, after that script's
+  own import statements -- so a throw anywhere before that registration (imports, or the IIFE's
+  own body up to that point) was exactly as silent as before. This isn't hypothetical: it's
+  precisely what happened for real on 2026-08-20 ("every button on the page stopped
+  responding"). Fixed by moving the listeners into their own plain (non-module) script,
+  positioned before the module tag -- a classic script always runs synchronously at its position
+  during parsing, strictly before any deferred `type="module"` script. Also found (and fixed)
+  two ways the handler produced *false* positives over a perfectly working game: `audioCtx.
+  resume()` in `js/audio.js` can reject on routine, non-fatal conditions (was uncaught), and
+  `auth.js`'s `notify()` called every `onChange` listener with nothing catching what they do --
+  a bug in any single UI-update callback (leaderboard/shop/myskins/the dragon-skin sync) would
+  reject `auth.init()`'s promise, which both call sites treat as fire-and-forget.
+
+Cache bumped to `burger-pig-v36`. This closes out every item from the 2026-09-26 adversarial
+re-review, and with it the original 2026-09-24 readiness review's security findings.
+
 ## 2026-09-26 (adversarial re-review: vendored the Supabase SDK, and the frame-buster was bypassable)
 
 A fresh adversarial pass over everything closed so far (rather than trusting this changelog's own

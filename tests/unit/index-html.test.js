@@ -109,6 +109,27 @@ describe("REGRESSION: a global error handler covers the game loop's silent-freez
     expect(body).toMatch(/if\s*\(\s*fatalErrorShown\s*\)\s*return/);
     expect(body).toContain('fatalErrorShown = true');
   });
+
+  // REGRESSION (second adversarial pass): registering these listeners INSIDE the module script,
+  // after its import statements, covered nothing that happened before that point -- exactly the
+  // window a real incident (2026-08-20, "every button on the page stopped responding", see
+  // CHANGELOG.md) fell into. A classic (non-module) script runs synchronously at its position
+  // during parsing, strictly before any type="module" script (deferred until the document has
+  // finished parsing) -- so the fix is registering them in their own plain script, positioned
+  // before the module tag, not inside it.
+  it('the error/unhandledrejection listeners live in a plain script that precedes the module script, not inside it', () => {
+    const moduleIdx = html.indexOf('\n<script type="module">');
+    const addErrorIdx = html.search(/window\.addEventListener\(\s*['"]error['"]/);
+    expect(addErrorIdx).toBeGreaterThanOrEqual(0);
+    expect(moduleIdx).toBeGreaterThan(0);
+    expect(addErrorIdx).toBeLessThan(moduleIdx);
+
+    // And it must actually be a classic script, not itself accidentally a second module script
+    // (which would defer it right back to running no earlier than the real module does).
+    const scriptOpenIdx = html.lastIndexOf('<script', addErrorIdx);
+    const scriptTag = html.slice(scriptOpenIdx, html.indexOf('>', scriptOpenIdx) + 1);
+    expect(scriptTag).toBe('<script>');
+  });
 });
 
 describe('REGRESSION: a local supabase.js load failure is loudly diagnosable, not silent', () => {
@@ -209,6 +230,15 @@ describe('REGRESSION: the post-Checkout return waits for auth before rendering t
 
   it('the ?checkout= param is stripped so a refresh cannot re-show the message', () => {
     expect(block).toContain('history.replaceState');
+  });
+
+  // REGRESSION (second adversarial pass): shop.render() does its own live network fetch, and
+  // this chain had no .catch() -- a transient failure right after a real Stripe payment (the
+  // one moment a buyer is actually watching this page) used to surface as a global
+  // unhandledrejection and pop the fatal-error banner, instead of just leaving the shop's own
+  // "Leaderboard/shop unavailable"-style degraded state up, same as any other failed fetch.
+  it('the authReady/shop.render() chain has a .catch(), so a failed render never becomes an unhandled rejection', () => {
+    expect(block).toMatch(/authReady\)[\s\S]*?\.catch\(/);
   });
 });
 

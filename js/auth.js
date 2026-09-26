@@ -12,8 +12,22 @@ export function createAuth({ url, anonKey }){
   let profile = null; // { display_name } or null if not yet chosen
   const listeners = [];
 
+  // REGRESSION: notify() is called from inside init()'s async body (and again from every
+  // onAuthStateChange event), and onChange() below calls a freshly-registered listener
+  // immediately and synchronously too -- none of that used to be guarded, so an uncaught throw
+  // from ANY one listener (leaderboard/shop/myskins/index.html's own dragon-skin sync, all
+  // registered via onChange) propagated out as that call's own exception. From inside init()'s
+  // async body, that means the promise it returns rejects; both real call sites treat that
+  // promise as fire-and-forget (see init()'s callers), so a bug in a single UI-update callback
+  // would surface as an unhandledrejection -- popping the global fatal-error banner over what's
+  // often a small, unrelated rendering bug -- and it stopped every *other* listener in the same
+  // notify() pass from running too. Routing every listener call through this one place keeps one
+  // broken callback from taking any of that down.
+  function callListener(cb){
+    try { cb({ session, profile }); } catch (e) { console.error('[auth] a listener threw:', e); }
+  }
   function notify(){
-    for (const cb of listeners) cb({ session, profile });
+    for (const cb of listeners) callListener(cb);
   }
 
   async function loadProfile(){
@@ -62,7 +76,7 @@ export function createAuth({ url, anonKey }){
   // Registers a callback fired immediately with the current state, then again on every change.
   function onChange(cb){
     listeners.push(cb);
-    cb({ session, profile });
+    callListener(cb);
   }
 
   async function sendMagicLink(email){

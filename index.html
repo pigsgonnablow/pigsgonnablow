@@ -341,6 +341,38 @@
   </button>
 </div>
 
+<!-- REGRESSION: these two listeners used to be registered inside the module script below, after
+     its import statements. A module's imports (and everything else in it, all the way down to
+     this IIFE's own body) run before that registration ever happens -- so a throw anywhere in
+     that window was exactly as silent and unrecoverable as ever, closing none of the actual gap.
+     This has already happened for real: 2026-08-20's "every button on the page stopped
+     responding" incident (see CHANGELOG.md) was a synchronous ReferenceError partway through this
+     same startup script, well before any handler here could have existed to catch it. A plain
+     (non-module) script always runs synchronously at its position during parsing, strictly before
+     any type="module" script executes (those are deferred until the document has finished
+     parsing) -- so putting these listeners in their own plain script, positioned before the
+     module tag, registers them before a single line of the module (or its imports) has run,
+     rather than partway through it. The banner markup above already exists in the DOM by this
+     point in parsing, so the getElementById calls below are safe. -->
+<script>
+  const fatalErrorBanner = document.getElementById('fatalErrorBanner');
+  const fatalErrorReloadBtn = document.getElementById('fatalErrorReloadBtn');
+  fatalErrorReloadBtn.addEventListener('click', () => location.reload());
+  let fatalErrorShown = false;
+  function showFatalErrorBanner(){
+    if (fatalErrorShown) return; // one error cascades into others (a broken frame draws badly,
+    fatalErrorShown = true;      // which throws again next frame) -- show the banner only once
+    fatalErrorBanner.classList.remove('hidden');
+  }
+  window.addEventListener('error', (e) => {
+    console.error('[game] uncaught error:', e.error || e.message);
+    showFatalErrorBanner();
+  });
+  window.addEventListener('unhandledrejection', (e) => {
+    console.error('[game] unhandled promise rejection:', e.reason);
+    showFatalErrorBanner();
+  });
+</script>
 <script type="module">
 import { createIsoProjection } from './js/iso.js';
 import {
@@ -365,31 +397,9 @@ import {
 import { resolveInputDirection, screenInputToWorldMove, easedVelocity, easedPitch, clampToWorld, clampJoystickVector, bottomAnchoredTop } from './js/movement.js';
 
 (function(){
-  // No try/catch anywhere in the game loop itself (see loop() below) -- an uncaught exception
-  // mid-frame simply stops requestAnimationFrame from rescheduling itself, which used to mean
-  // the game silently froze on the last rendered frame with zero feedback, indistinguishable
-  // from a lag spike. These two handlers are the last line of defense: they can't fix whatever
-  // broke, but they at least tell the player something did and give them a way out, instead of
-  // a frozen screen they might sit staring at. Deliberately not attempting to resume the loop
-  // after an error -- state may be partway through a corrupted update, and guessing wrong there
-  // risks worse (silently wrong scores, stuck state) than just asking for a reload.
-  const fatalErrorBanner = document.getElementById('fatalErrorBanner');
-  const fatalErrorReloadBtn = document.getElementById('fatalErrorReloadBtn');
-  fatalErrorReloadBtn.addEventListener('click', () => location.reload());
-  let fatalErrorShown = false;
-  function showFatalErrorBanner(){
-    if (fatalErrorShown) return; // one error cascades into others (a broken frame draws badly,
-    fatalErrorShown = true;      // which throws again next frame) -- show the banner only once
-    fatalErrorBanner.classList.remove('hidden');
-  }
-  window.addEventListener('error', (e) => {
-    console.error('[game] uncaught error:', e.error || e.message);
-    showFatalErrorBanner();
-  });
-  window.addEventListener('unhandledrejection', (e) => {
-    console.error('[game] unhandled promise rejection:', e.reason);
-    showFatalErrorBanner();
-  });
+  // The global error/unhandledrejection listeners and the fatal-error banner they show now live
+  // in their own plain <script>, right before this one -- see the REGRESSION comment there for
+  // why (this module's own imports, above, ran before this IIFE even started).
 
   const canvas = document.getElementById('game');
   const ctx = canvas.getContext('2d');
@@ -2033,11 +2043,14 @@ import { resolveInputDirection, screenInputToWorldMove, easedVelocity, easedPitc
     history.replaceState(null, '', window.location.pathname);
     overlay.classList.add('hidden');
     shopScreen.classList.remove('hidden');
+    // .catch() here is deliberate, not just tidiness: shop.render() does its own live network
+    // fetch, so a transient failure here is routine (same as any other failed fetch elsewhere in
+    // the game), not a reason to pop the global fatal-error banner over an otherwise-working page.
     Promise.resolve(authReady).then(() => shop.render()).then(() => {
       shopSubStatus.textContent = checkoutResult === 'success'
         ? 'Purchase complete! It should appear below in a few seconds.'
         : 'Checkout canceled.';
-    });
+    }).catch((e) => console.error('[shop] post-checkout render failed:', e));
   }
 
   // initial static draw behind overlay

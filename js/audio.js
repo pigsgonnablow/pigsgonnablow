@@ -3,7 +3,13 @@ let audioCtx = null;
 
 export function ensureAudio(){
   if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-  else if (audioCtx.state === 'suspended') audioCtx.resume();
+  // REGRESSION: resume() returns a promise that can reject (e.g. InvalidStateError if the
+  // context got closed, or a browser refusing to resume outside a fresh user gesture) -- this is
+  // called on ordinary in-game actions (feeding, throwing, jumping), not just an explicit "enable
+  // sound" click, so a rejection here is routine, not fatal: audio just stays muted for that
+  // action, exactly as if audioCtx were still null above. Uncaught, it would instead surface as
+  // an unhandledrejection and pop the global fatal-error banner over a perfectly playable game.
+  else if (audioCtx.state === 'suspended') audioCtx.resume().catch(() => {});
 }
 
 function playTone({freq, freqEnd=null, duration=0.15, type='sine', volume=0.25, delay=0}){
