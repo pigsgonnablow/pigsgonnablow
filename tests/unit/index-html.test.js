@@ -49,6 +49,10 @@ describe('Content-Security-Policy', () => {
     expect(html).toMatch(/if\s*\(\s*self\s*!==\s*top\s*\)/);
   });
 
+  it("does not allow any third-party script origin (the Supabase SDK is vendored locally, not CDN-loaded)", () => {
+    expect(directive('script-src').some((s) => /^https?:/.test(s))).toBe(false);
+  });
+
   it("does not open default-src or connect-src to arbitrary origins", () => {
     expect(directive('default-src')).toEqual(["'self'"]);
     expect(directive('connect-src').filter((s) => s === '*' || s === 'https:' || s === 'http:')).toEqual([]);
@@ -107,13 +111,44 @@ describe("REGRESSION: a global error handler covers the game loop's silent-freez
   });
 });
 
-describe('REGRESSION: a jsdelivr CDN failure for supabase-js is loudly diagnosable, not silent', () => {
+describe('REGRESSION: a local supabase.js load failure is loudly diagnosable, not silent', () => {
+  it('the SDK is vendored locally, not loaded from a third-party CDN', () => {
+    const i = html.indexOf('id="supabaseSdkScript"');
+    expect(i).toBeGreaterThanOrEqual(0);
+    const tag = html.slice(i, html.indexOf('>', i) + 1);
+    expect(tag).toMatch(/src="\.\/js\/vendor\/supabase\.js"/);
+    expect(tag).not.toMatch(/cdn\.jsdelivr\.net/);
+  });
+
   it('the SDK script tag has an error listener that logs clearly', () => {
     const i = html.indexOf('id="supabaseSdkScript"');
     expect(i).toBeGreaterThanOrEqual(0);
     const after = html.slice(i, i + 1500);
     expect(after).toMatch(/addEventListener\(\s*['"]error['"]/);
     expect(after).toContain('console.error(');
+  });
+});
+
+// REGRESSION: a plain `if (self !== top) top.location = ...` fails OPEN inside a sandboxed
+// iframe that omits allow-top-navigation -- the reassignment throws (uncaught), so the page
+// renders normally inside the attacker's frame instead of busting out. The fix hides the page
+// by default and only reveals it once framing has been ruled out, so a thrown error leaves it
+// hidden instead of visible.
+describe('REGRESSION: the frame-buster fails closed (hidden) rather than open (framed) when busting out throws', () => {
+  it('the page is hidden by default via a <style> that predates the frame-buster script', () => {
+    const styleIdx = html.indexOf('id="antiframeStyle"');
+    const scriptIdx = html.indexOf('if (self !== top)', styleIdx); // the live check, not the comment describing it (which precedes the style tag)
+    expect(styleIdx).toBeGreaterThanOrEqual(0);
+    expect(scriptIdx).toBeGreaterThanOrEqual(0);
+    expect(styleIdx).toBeLessThan(scriptIdx);
+    const styleTag = html.slice(html.lastIndexOf('<style', styleIdx), html.indexOf('</style>', styleIdx) + '</style>'.length);
+    expect(styleTag).toMatch(/html\s*\{\s*display\s*:\s*none\s*!important/);
+  });
+
+  it('busting out is wrapped in try/catch, and only the non-framed branch removes the hiding style', () => {
+    const body = blockAfter('try {');
+    expect(body).toMatch(/self\s*!==\s*top/);
+    expect(body).toMatch(/getElementById\(\s*['"]antiframeStyle['"]\s*\)\.remove\(\)/);
   });
 });
 
@@ -182,7 +217,15 @@ describe('no server-side secret is shipped to the browser', () => {
   // service-role key / Stripe secret / webhook secret pasted in here instead would hand every
   // visitor full database write access -- and there is nothing in a browser that would
   // complain. The Edge Functions' own secrets live in Supabase's env, never in this repo.
-  const shipped = ['index.html', 'sw.js', ...readdirSync(resolve(ROOT, 'js')).map((f) => `js/${f}`)];
+  const shipped = [
+    'index.html',
+    'sw.js',
+    // js/vendor holds a pinned, unmodified third-party bundle (see index.html's comment on the
+    // supabaseSdkScript tag) -- excluded here the same way node_modules would be, not scanned.
+    ...readdirSync(resolve(ROOT, 'js'), { withFileTypes: true })
+      .filter((e) => e.isFile())
+      .map((e) => `js/${e.name}`),
+  ];
 
   it.each(shipped)('%s contains no secret-shaped token', (file) => {
     const src = readFileSync(resolve(ROOT, file), 'utf8');

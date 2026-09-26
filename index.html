@@ -11,15 +11,30 @@
      Supabase URL, which is the piece that actually buys something -- it blocks the page from
      phoning out anywhere else, and would neuter a color_filter: url(https://evil/x) beacon
      even though that value is no longer settable directly (see supabase_lockdown_direct_writes.sql). -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https://ljnshaoruygijgtcokwv.supabase.co; frame-ancestors 'none'; base-uri 'none'; form-action 'self';">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https://ljnshaoruygijgtcokwv.supabase.co; frame-ancestors 'none'; base-uri 'none'; form-action 'self';">
 <!-- The frame-ancestors 'none' above does NOT actually block framing: the CSP spec explicitly
      ignores frame-ancestors (along with report-uri/report-to/sandbox) when a policy is
      delivered via <meta> rather than a real HTTP header, and GitHub Pages -- this site's host --
      has no way to set one. Left in place because it's harmless and would help on a host that
-     could send real headers, but the actual anti-clickjacking defense is this: bust out of any
-     iframe immediately, before a clickjacked overlay could trick a click on sign-in/BUY. Plain
-     inline (not type="module") so it runs synchronously as early as possible. -->
-<script>if (self !== top) { top.location = self.location.href; }</script>
+     could send real headers, but the actual anti-clickjacking defense is the pair below: bust out
+     of any iframe immediately, before a clickjacked overlay could trick a click on sign-in/BUY.
+     REGRESSION: a plain `if (self !== top) top.location = ...` (no try/catch, no CSS fallback)
+     fails OPEN -- a sandboxed iframe (sandbox="allow-scripts allow-forms allow-same-origin", which
+     deliberately omits allow-top-navigation) makes that assignment throw a SecurityError, which
+     was uncaught, so the page just rendered normally inside the attacker's frame. Fixed by hiding
+     the whole page by default (the <style> below) and only revealing it once we've confirmed
+     we're not framed; if busting out throws, we stay hidden instead of rendering framed. Plain
+     inline (not type="module") so it runs synchronously as early as possible, before first paint. -->
+<style id="antiframeStyle">html{display:none!important}</style>
+<script>
+  try {
+    if (self !== top) { top.location = self.location.href; }
+    else { document.getElementById('antiframeStyle').remove(); }
+  } catch (e) {
+    // A sandboxed iframe without allow-top-navigation blocks the reassignment above and throws
+    // instead -- leave the page hidden rather than let it render inside the attacker's frame.
+  }
+</script>
 <title>Cheeseburger Dragon vs. The Exploding Pig</title>
 <meta name="description" content="Feed the pig cheeseburgers, dodge the blast, grab the coins. A free browser game -- survive 15 escalating levels of Cheeseburger Dragon vs. The Exploding Pig.">
 <meta property="og:type" content="website">
@@ -38,16 +53,25 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <link rel="apple-touch-icon" href="icon-192.png">
 <link rel="icon" href="icon-192.png">
-<script id="supabaseSdkScript" src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<!-- REGRESSION: this used to load @supabase/supabase-js@2 (a floating major-version tag, no
+     integrity hash) straight from cdn.jsdelivr.net into a page with `script-src 'unsafe-inline'`
+     and real money flowing through it (Stripe checkout). A compromised publish of any 2.x release,
+     or a jsdelivr-side incident, would have run with full page privileges -- reading the Supabase
+     session out of localStorage, harvesting sign-in emails, or rewriting the BUY redirect to a
+     lookalike Stripe page. Fixed by vendoring the exact version we've tested (2.117.2) into the
+     repo: it's now just another same-origin static asset, already cached by sw.js like the rest,
+     with no third party's release pipeline in the trust path at runtime. Update deliberately: bump
+     the version in the jsdelivr URL below, re-download, and re-test. -->
+<script id="supabaseSdkScript" src="./js/vendor/supabase.js"></script>
 <script>
   // js/auth.js, js/shop.js, js/myskins.js, and js/leaderboard.js already treat a missing
   // window.supabase as an optional dependency and degrade gracefully (each shows its own clear
   // "unavailable" message instead of breaking) -- this listener adds nothing functional on top
-  // of that. It exists purely so a jsdelivr outage or a network-level block of this one CDN
+  // of that. It exists purely so a bad service-worker cache or a missing/corrupted local file
   // shows up loudly in the console, instead of being a silent, hard-to-diagnose "why is sign-in
   // dead for this one player" report with no lead to start from.
   document.getElementById('supabaseSdkScript').addEventListener('error', () => {
-    console.error('[game] supabase-js failed to load from cdn.jsdelivr.net -- sign-in, leaderboard, and shop will be unavailable this session.');
+    console.error('[game] supabase-js failed to load (js/vendor/supabase.js) -- sign-in, leaderboard, and shop will be unavailable this session.');
   });
 </script>
 <style>

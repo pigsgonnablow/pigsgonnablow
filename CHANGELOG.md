@@ -2,6 +2,36 @@
 
 Running log of notable changes, kept during dev sessions for reference.
 
+## 2026-09-26 (adversarial re-review: vendored the Supabase SDK, and the frame-buster was bypassable)
+
+A fresh adversarial pass over everything closed so far (rather than trusting this changelog's own
+claims) found two of the "closed" items were weaker than advertised:
+
+- **The frame-buster failed open, not closed.** `if (self !== top) top.location = ...` with no
+  try/catch: a sandboxed iframe (`sandbox="allow-scripts allow-forms allow-same-origin"`, which
+  deliberately omits `allow-top-navigation`) makes that assignment throw an uncaught
+  `SecurityError` instead of navigating, so the page rendered normally inside the attacker's
+  frame -- exactly the clickjacking setup this was supposed to prevent. Fixed by hiding the whole
+  page by default (a `<style>` that predates the script) and only revealing it once framing has
+  been ruled out; a thrown error now leaves the page hidden instead of visible.
+- **supabase-js was loaded unpinned from a third-party CDN into a page with real money flowing
+  through it.** `@supabase/supabase-js@2` (a floating major-version tag, no integrity hash) from
+  `cdn.jsdelivr.net`, with `script-src` allowing that origin plus `'unsafe-inline'`. A compromised
+  2.x publish or a jsdelivr-side incident would run with full page privileges -- reading the
+  Supabase session out of localStorage, harvesting sign-in emails, or rewriting the BUY redirect
+  to a lookalike Stripe page. Fixed by vendoring the exact tested version (2.117.2) into
+  `js/vendor/supabase.js`: it's now a same-origin static asset like everything else, cached by
+  `sw.js`, with no third party's release pipeline in the runtime trust path. `cdn.jsdelivr.net`
+  dropped from `script-src` entirely as a result.
+
+Everything else re-checked out: the `skins`/`owned_skins` RLS lockdown, webhook grant/revoke
+tombstoning, and create-checkout idempotency key all verified closed against the live project
+with no client-reachable bypass found. A few lower-severity items were also surfaced (global
+rate-limiter budget instead of per-identity, retiring a paid skin can hide a paid entitlement,
+the error handler doesn't cover a startup-time module-eval crash) -- tracked, not yet fixed.
+
+Cache bumped to `burger-pig-v35`.
+
 ## 2026-09-26 (global error handler + CDN failure diagnosability -- the last two readiness items)
 
 - **The game loop had no error handling at all.** `loop()` calls `update()`/`draw()` with no
