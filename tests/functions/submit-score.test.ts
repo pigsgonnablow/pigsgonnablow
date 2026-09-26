@@ -67,7 +67,7 @@ Deno.test("rejects non-POST, non-OPTIONS methods", async () => {
 
 Deno.test("happy path: calls submit_anonymous_score with the name, score, and a hashed IP", async () => {
   const t = setup();
-  const res = await t.handler(post({ name: "Bob", score: 420 }, { "x-forwarded-for": "203.0.113.5" }));
+  const res = await t.handler(post({ name: "Bob", score: 420 }, { "cf-connecting-ip": "203.0.113.5" }));
   assert.equal(res.status, 200);
   assertCors(res);
   assert.deepEqual(await json(res), { ok: true });
@@ -78,24 +78,28 @@ Deno.test("happy path: calls submit_anonymous_score with the name, score, and a 
   assert.deepEqual(t.hashedIps, ["203.0.113.5"]);
 });
 
-Deno.test("x-forwarded-for: takes the LAST entry (the real client IP), not the first (client-spoofable)", async () => {
-  // A caller can set any value it likes for the earliest hops in this header (or the whole
-  // header, before it reaches Supabase's fronting proxy) -- only the proxy-appended last entry
-  // is trustworthy. Taking the first entry would let a caller pick a fresh fake IP on every
-  // request and never be rate-limited at all -- see the extractClientIp comment in handler.ts.
+// REGRESSION: cf-connecting-ip is set by Cloudflare at their edge and cannot be overridden by
+// the caller -- live testing against the deployed function proved x-forwarded-for's last entry
+// (the previous choice here) is NOT equivalent: a caller-forged x-forwarded-for value passed
+// through unmodified, so it must never be preferred over cf-connecting-ip. See the extended
+// comment on extractClientIp in handler.ts for how this was discovered.
+Deno.test("REGRESSION: cf-connecting-ip wins even when the caller also forges x-forwarded-for", async () => {
   const t = setup();
-  await t.handler(post({ name: "Bob", score: 1 }, { "x-forwarded-for": "1.2.3.4, 10.0.0.1, 203.0.113.9" }));
+  await t.handler(post(
+    { name: "Bob", score: 1 },
+    { "cf-connecting-ip": "203.0.113.9", "x-forwarded-for": "1.2.3.4, 10.0.0.1, 9.9.9.9" },
+  ));
   assert.deepEqual(t.hashedIps, ["203.0.113.9"]);
 });
 
-Deno.test("falls back to cf-connecting-ip, then x-real-ip, when x-forwarded-for is absent", async () => {
+Deno.test("falls back to x-real-ip, then x-forwarded-for (last resort, spoofable), in that order", async () => {
   const t1 = setup();
-  await t1.handler(post({ name: "Bob", score: 1 }, { "cf-connecting-ip": "203.0.113.9" }));
-  assert.deepEqual(t1.hashedIps, ["203.0.113.9"]);
+  await t1.handler(post({ name: "Bob", score: 1 }, { "x-real-ip": "203.0.113.10" }));
+  assert.deepEqual(t1.hashedIps, ["203.0.113.10"]);
 
   const t2 = setup();
-  await t2.handler(post({ name: "Bob", score: 1 }, { "x-real-ip": "203.0.113.10" }));
-  assert.deepEqual(t2.hashedIps, ["203.0.113.10"]);
+  await t2.handler(post({ name: "Bob", score: 1 }, { "x-forwarded-for": "1.2.3.4, 10.0.0.1, 203.0.113.9" }));
+  assert.deepEqual(t2.hashedIps, ["1.2.3.4, 10.0.0.1, 203.0.113.9"]);
 });
 
 Deno.test("no usable IP header at all: still submits, with a null ip_hash (falls back to the global-only budget)", async () => {

@@ -2,6 +2,43 @@
 
 Running log of notable changes, kept during dev sessions for reference.
 
+## 2026-09-26 (later) -- a third adversarial pass found the per-IP rate limit was deployed but inert
+
+A follow-up adversarial review (after the fixes below) found that the just-shipped per-IP score
+rate limiter didn't actually work: `extractClientIp()` trusted the LAST entry of
+`x-forwarded-for`, on the assumption that Cloudflare (fronting Supabase's Edge Runtime) appends
+the real client IP there the way a classic reverse-proxy chain does.
+
+Live testing against the deployed function proved that assumption false for this platform: three
+requests carrying an identical forged `x-forwarded-for` value produced *two different* `ip_hash`
+values in `_scores_insert_log`, and Supabase's own edge logs (`request.headers.x_forwarded_for`)
+showed a caller-supplied value passing through completely unmodified -- Supabase does not
+sanitize or append to this header before the function sees it. The per-IP budget was therefore
+keying off attacker-chosen data, which is worse than no per-IP check at all: it also let two
+unrelated real players collide on the same value and rate-limit each other. The only limiter
+actually in force was the pre-existing global 20/60s budget -- exactly the single-attacker DoS
+lever the Edge Function was built to eliminate.
+
+The same edge logs showed `cf-connecting-ip` (mirrored by `x-real-ip`) carrying the real caller IP
+independently on every request. That header is set by Cloudflare at their own edge and cannot be
+overridden by the client, unlike `x-forwarded-for` on this platform. Fixed `extractClientIp()` in
+`supabase/functions/submit-score/handler.ts` to check `cf-connecting-ip` first, then `x-real-ip`,
+and only fall back to `x-forwarded-for` as a last resort (kept only in case a request somehow
+arrives without either Cloudflare header -- never to be checked first again). Also fixed
+`tests/functions/submit-score.test.ts`, which had encoded the false premise as a passing unit
+test (asserting against a synthetic, hand-built XFF string) and so gave no warning that live
+behavior didn't match.
+
+Also identified but not yet fixed, and staying open for now (all Low/Informational, see the
+review for detail): authenticated score submission has no rate limit at all, beyond the one-row-
+per-account cap; the magic-link endpoint has no captcha and can be used to exhaust the project's
+email quota; Stripe's checkout idempotency key can block a legitimate re-purchase for up to 24h
+after a refund; the service worker is cache-first forever with no revalidation, so a missed
+`CACHE_NAME` bump would silently re-expose a stale, pre-fix `index.html` to returning players.
+
+Everything else from the round below (frame-buster, vendored SDK, error-handler ordering, the two
+false-positive-banner fixes) was independently re-verified correct and unchanged.
+
 ## 2026-09-26 (per-IP rate limiting, and the error handler's own blind spots)
 
 The remaining two items from the adversarial re-review that found the frame-buster/CDN issues

@@ -32,17 +32,25 @@ function jsonResponse(body: unknown, status = 200) {
   });
 }
 
-// Cloudflare (fronting Supabase's Edge Runtime) and most other proxies append the real client
-// IP as the LAST entry of x-forwarded-for -- everything before it is untrusted, client-suppliable
-// hops. Taking the first entry (a common mistake) would let a caller simply set their own
-// x-forwarded-for header to a fresh fake value on every request and never be rate-limited at all.
+// REGRESSION: this used to trust the LAST entry of x-forwarded-for, on the assumption that
+// Cloudflare (fronting Supabase's Edge Runtime) appends the real client IP there the way a
+// classic reverse-proxy chain does. Live testing against the deployed function proved that
+// assumption false: a caller-supplied x-forwarded-for value passed through completely
+// unmodified (confirmed via request.headers.x_forwarded_for in Supabase's edge logs), making the
+// "per-caller" IP hash actually attacker-chosen -- three identical requests with a forged
+// x-forwarded-for produced *different* hashes, and the per-IP rate limit never engaged at all.
+// The same live logs showed cf-connecting-ip (and its mirror, x-real-ip) carrying the caller's
+// real IP independently on every request -- that header is set by Cloudflare at their edge and
+// is not something a client can override, so it's the only one of the three actually safe to
+// trust here. x-forwarded-for is kept only as a last-resort fallback (better than nothing if a
+// request somehow arrives without either Cloudflare header) but must never be checked first.
 function extractClientIp(req: Request): string | null {
-  const xff = req.headers.get("x-forwarded-for");
-  if (xff) {
-    const parts = xff.split(",").map((s) => s.trim()).filter(Boolean);
-    if (parts.length > 0) return parts[parts.length - 1];
-  }
-  return req.headers.get("cf-connecting-ip") ?? req.headers.get("x-real-ip") ?? null;
+  return (
+    req.headers.get("cf-connecting-ip") ??
+    req.headers.get("x-real-ip") ??
+    req.headers.get("x-forwarded-for") ??
+    null
+  );
 }
 
 export function createHandler({ supabaseAdmin, hashIp }: SubmitScoreDeps) {
