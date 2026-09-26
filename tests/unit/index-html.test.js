@@ -82,6 +82,41 @@ describe('Terms of Service is linked next to the Privacy Policy', () => {
   });
 });
 
+// REGRESSION (public-readiness review): the game loop (see loop() further down) has no
+// try/catch -- an uncaught error mid-frame just stops requestAnimationFrame from rescheduling
+// itself, freezing the game on its last drawn frame with zero feedback. These two listeners are
+// what turn that into something the player can actually recover from.
+describe("REGRESSION: a global error handler covers the game loop's silent-freeze failure mode", () => {
+  it('a synchronous uncaught error shows the fatal-error banner', () => {
+    expect(html).toMatch(/window\.addEventListener\(\s*['"]error['"]\s*,[\s\S]{0,200}showFatalErrorBanner\(\)/);
+  });
+
+  it('an unhandled promise rejection also shows it (async errors, e.g. a failed fetch in an event handler)', () => {
+    expect(html).toMatch(/window\.addEventListener\(\s*['"]unhandledrejection['"]\s*,[\s\S]{0,200}showFatalErrorBanner\(\)/);
+  });
+
+  it('the banner element exists, starts hidden, and its reload button actually reloads', () => {
+    expect(html).toMatch(/id="fatalErrorBanner"[^>]*class="hidden"|class="hidden"[^>]*id="fatalErrorBanner"/);
+    expect(html).toMatch(/fatalErrorReloadBtn\.addEventListener\(\s*['"]click['"]\s*,\s*\(\)\s*=>\s*location\.reload\(\)\s*\)/);
+  });
+
+  it('showing the banner only ever happens once (a cascade of follow-on errors does not re-trigger it)', () => {
+    const body = blockAfter('function showFatalErrorBanner(');
+    expect(body).toMatch(/if\s*\(\s*fatalErrorShown\s*\)\s*return/);
+    expect(body).toContain('fatalErrorShown = true');
+  });
+});
+
+describe('REGRESSION: a jsdelivr CDN failure for supabase-js is loudly diagnosable, not silent', () => {
+  it('the SDK script tag has an error listener that logs clearly', () => {
+    const i = html.indexOf('id="supabaseSdkScript"');
+    expect(i).toBeGreaterThanOrEqual(0);
+    const after = html.slice(i, i + 1500);
+    expect(after).toMatch(/addEventListener\(\s*['"]error['"]/);
+    expect(after).toContain('console.error(');
+  });
+});
+
 describe("REGRESSION: leaving a game screen hides the in-game overlays (#warning lives outside #hud)", () => {
   const paths = {
     endGame: () => blockAfter('function endGame('),

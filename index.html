@@ -38,7 +38,18 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <link rel="apple-touch-icon" href="icon-192.png">
 <link rel="icon" href="icon-192.png">
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script id="supabaseSdkScript" src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script>
+  // js/auth.js, js/shop.js, js/myskins.js, and js/leaderboard.js already treat a missing
+  // window.supabase as an optional dependency and degrade gracefully (each shows its own clear
+  // "unavailable" message instead of breaking) -- this listener adds nothing functional on top
+  // of that. It exists purely so a jsdelivr outage or a network-level block of this one CDN
+  // shows up loudly in the console, instead of being a silent, hard-to-diagnose "why is sign-in
+  // dead for this one player" report with no lead to start from.
+  document.getElementById('supabaseSdkScript').addEventListener('error', () => {
+    console.error('[game] supabase-js failed to load from cdn.jsdelivr.net -- sign-in, leaderboard, and shop will be unavailable this session.');
+  });
+</script>
 <style>
   * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color: transparent; }
   html, body {
@@ -179,6 +190,10 @@
 <body>
 <div id="wrap">
   <canvas id="game"></canvas>
+  <div id="fatalErrorBanner" class="hidden" style="position:absolute; left:0; right:0; top:0; z-index:9999; background:#7a1f1f; color:#fff; text-align:center; padding:10px 14px; font-family:Arial, sans-serif; font-size:14px; font-weight:bold;">
+    Something went wrong.
+    <button id="fatalErrorReloadBtn" style="margin-left:8px; padding:4px 10px; font-weight:bold; cursor:pointer; border:1px solid #ffd23f; background:transparent; color:#ffd23f; border-radius:4px;">Reload</button>
+  </div>
   <div id="hud" class="hidden">
     <div id="hudLeft">
       <div id="level">LEVEL 1</div>
@@ -326,6 +341,32 @@ import {
 import { resolveInputDirection, screenInputToWorldMove, easedVelocity, easedPitch, clampToWorld, clampJoystickVector, bottomAnchoredTop } from './js/movement.js';
 
 (function(){
+  // No try/catch anywhere in the game loop itself (see loop() below) -- an uncaught exception
+  // mid-frame simply stops requestAnimationFrame from rescheduling itself, which used to mean
+  // the game silently froze on the last rendered frame with zero feedback, indistinguishable
+  // from a lag spike. These two handlers are the last line of defense: they can't fix whatever
+  // broke, but they at least tell the player something did and give them a way out, instead of
+  // a frozen screen they might sit staring at. Deliberately not attempting to resume the loop
+  // after an error -- state may be partway through a corrupted update, and guessing wrong there
+  // risks worse (silently wrong scores, stuck state) than just asking for a reload.
+  const fatalErrorBanner = document.getElementById('fatalErrorBanner');
+  const fatalErrorReloadBtn = document.getElementById('fatalErrorReloadBtn');
+  fatalErrorReloadBtn.addEventListener('click', () => location.reload());
+  let fatalErrorShown = false;
+  function showFatalErrorBanner(){
+    if (fatalErrorShown) return; // one error cascades into others (a broken frame draws badly,
+    fatalErrorShown = true;      // which throws again next frame) -- show the banner only once
+    fatalErrorBanner.classList.remove('hidden');
+  }
+  window.addEventListener('error', (e) => {
+    console.error('[game] uncaught error:', e.error || e.message);
+    showFatalErrorBanner();
+  });
+  window.addEventListener('unhandledrejection', (e) => {
+    console.error('[game] unhandled promise rejection:', e.reason);
+    showFatalErrorBanner();
+  });
+
   const canvas = document.getElementById('game');
   const ctx = canvas.getContext('2d');
 

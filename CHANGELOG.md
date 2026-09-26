@@ -2,6 +2,28 @@
 
 Running log of notable changes, kept during dev sessions for reference.
 
+## 2026-09-26 (global error handler + CDN failure diagnosability -- the last two readiness items)
+
+- **The game loop had no error handling at all.** `loop()` calls `update()`/`draw()` with no
+  try/catch; an uncaught exception mid-frame simply stops `requestAnimationFrame` from
+  rescheduling itself, silently freezing the game on its last drawn frame -- indistinguishable
+  from a lag spike, with zero feedback. Added `window.addEventListener('error'/'unhandledrejection', ...)`
+  handlers that log clearly to the console and show a small "Something went wrong — Reload"
+  banner. Deliberately doesn't try to resume the loop after an error (state may be mid-corruption
+  from whatever broke; guessing wrong there risks worse than asking for a reload), and only ever
+  shows the banner once (a broken frame can throw again on the very next `requestAnimationFrame`,
+  which shouldn't re-trigger it).
+- **A jsdelivr CDN failure for supabase-js was silent.** Every module that depends on it
+  (`js/auth.js`, `js/shop.js`, `js/myskins.js`, `js/leaderboard.js`) already treats a missing
+  `window.supabase` as an optional dependency and degrades gracefully -- that part turned out to
+  already be solid. What was missing was any *signal* that it happened at all: a CDN outage or a
+  network-level block would silently disable sign-in/shop/leaderboard with nothing in the console
+  to start debugging from. Added an `error` listener on the script tag itself that logs a clear,
+  specific message.
+
+Cache bumped to `burger-pig-v34`. This closes out every item from the original 2026-09-24
+public-readiness review.
+
 ## 2026-09-26 (Terms of Service + an actual age gate, not just a policy statement)
 
 Two of the remaining public-readiness items from the original 2026-09-24 review, addressed:
