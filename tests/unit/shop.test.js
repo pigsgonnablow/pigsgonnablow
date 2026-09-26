@@ -4,9 +4,9 @@ import { createShop } from '../../js/shop.js';
 import { createFakeSupabase, deferred, flush, SESSION } from '../helpers/fakeSupabase.js';
 
 const SKINS = [
-  { id: 'pig', name: 'Pig', emoji: 'P', price_cents: 0, color_filter: null },
-  { id: 'dragon', name: 'Dragon', emoji: 'D', price_cents: 199, color_filter: null },
-  { id: 'unicorn', name: 'Unicorn', emoji: 'U', price_cents: 100000, color_filter: null },
+  { id: 'pig', name: 'Pig', emoji: 'P', price_cents: 0, color_filter: null, description: null },
+  { id: 'dragon', name: 'Dragon', emoji: 'D', price_cents: 199, color_filter: null, description: 'Leaves a trail of embers while flying.' },
+  { id: 'unicorn', name: 'Unicorn', emoji: 'U', price_cents: 100000, color_filter: null, description: null },
 ];
 
 let elements;
@@ -32,6 +32,7 @@ function build({ owned = [], session = SESSION, functions } = {}) {
 const cards = () => [...elements.listEl.querySelectorAll('.skinCard')];
 const priceOf = (card) => card.querySelector('.skinPrice').textContent;
 const btnOf = (card) => card.querySelector('button');
+const descOf = (card) => card.querySelector('.skinDesc');
 
 describe('render', () => {
   it('formats prices as dollars.cents with no drift', async () => {
@@ -47,6 +48,15 @@ describe('render', () => {
     expect([pig.textContent, pig.disabled]).toEqual(['OWNED', true]);
     expect([dragon.textContent, dragon.disabled]).toEqual(['OWNED', true]);
     expect([unicorn.textContent, unicorn.disabled]).toEqual(['BUY', false]);
+  });
+
+  it('shows a skin\'s description when the catalog has one, and nothing when it does not', async () => {
+    const { shop } = build();
+    await shop.render();
+    const [pig, dragon, unicorn] = cards();
+    expect(descOf(pig)).toBeNull();
+    expect(descOf(dragon).textContent).toBe('Leaves a trail of embers while flying.');
+    expect(descOf(unicorn)).toBeNull();
   });
 
   it('signed out: BUY is disabled with a hint, and the owned-skins table is never queried', async () => {

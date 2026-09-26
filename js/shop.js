@@ -32,7 +32,7 @@ export function createShop({ auth, elements }){
 
     const { data: skins, error: skinsError } = await sb
       .from('skins')
-      .select('id,name,emoji,price_cents,color_filter')
+      .select('id,name,emoji,price_cents,color_filter,description')
       .eq('active', true)
       .order('sort_order', { ascending: true });
     if (myGeneration !== renderGeneration) return;
@@ -67,10 +67,13 @@ export function createShop({ auth, elements }){
       // color_filter comes from our own catalog (not user input), but it's still a raw CSS
       // value -- keep it out of the innerHTML template and set it as a real style property
       // instead of string-interpolating it into an attribute.
+      // description is our own catalog copy (not user input), same trust level as name/emoji --
+      // still routed through escapeHtml like everything else here rather than assumed safe.
       card.innerHTML = `
         <div class="skinEmoji">${escapeHtml(skin.emoji)}</div>
         <div class="skinInfo">
           <div class="skinName">${escapeHtml(skin.name)}</div>
+          ${skin.description ? `<div class="skinDesc">${escapeHtml(skin.description)}</div>` : ''}
           <div class="skinPrice">${owned ? 'Owned' : priceText}</div>
         </div>
       `;

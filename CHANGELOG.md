@@ -2,6 +2,17 @@
 
 Running log of notable changes, kept during dev sessions for reference.
 
+## 2026-09-26 (still later) -- shop now tells you the Red Dragon has an ember trail
+
+The Dragon - Red skin has had a real, always-on in-game effect since the wind/gust rework (a
+trailing ember particle stream while flying, plus a faint idle glow -- see dragonIsRed/
+spawnDragonEmber/drawDragonEmbers in index.html), but nothing in the shop's catalog card ever
+said so -- a buyer only found out after paying. Added a nullable `description` column to
+`public.skins` (`supabase_skin_descriptions_schema.sql`) and set it for `dragon-red`
+("Leaves a trail of embers while flying."); `js/shop.js` now renders it as a small italic line
+under the skin's name when present, escaped the same way name/emoji already are. Bumped
+`sw.js`'s CACHE_NAME since this touches `index.html` (new `.skinDesc` CSS) and `js/shop.js`.
+
 ## 2026-09-26 (later) -- a third adversarial pass found the per-IP rate limit was deployed but inert
 
 A follow-up adversarial review (after the fixes below) found that the just-shipped per-IP score

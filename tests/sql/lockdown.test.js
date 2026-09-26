@@ -29,6 +29,7 @@ const SCHEMA_FILES = [
   'supabase_lockdown_direct_writes.sql',
   'supabase_owned_skins_revocation.sql',
   'supabase_scores_rate_limit_by_ip.sql',
+  'supabase_skin_descriptions_schema.sql',
 ];
 const sqlOf = (f) => readFileSync(resolve(ROOT, f), 'utf8');
 
@@ -101,6 +102,16 @@ describe('the schema files', () => {
 
   it('the scores-rate-limit-by-ip file is safe to re-run', async () => {
     await expect(db.exec(sqlOf('supabase_scores_rate_limit_by_ip.sql'))).resolves.not.toThrow();
+  });
+
+  it('the skin-descriptions file is safe to re-run', async () => {
+    await expect(db.exec(sqlOf('supabase_skin_descriptions_schema.sql'))).resolves.not.toThrow();
+  });
+
+  it('dragon-red carries its ember-trail description; skins with nothing special have none', async () => {
+    const { rows } = await db.query('select id, description from public.skins where id in ($1, $2)', ['dragon-red', 'dragon-default']);
+    expect(rows.find((r) => r.id === 'dragon-red').description).toBe('Leaves a trail of embers while flying.');
+    expect(rows.find((r) => r.id === 'dragon-default').description).toBeNull();
   });
 
   it('REGRESSION: on a fresh database the grants at the END of the lockdown file really land', async () => {
