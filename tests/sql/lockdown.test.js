@@ -27,6 +27,7 @@ const SCHEMA_FILES = [
   'supabase_purchase_audit_schema.sql',
   'supabase_remove_griffin_schema.sql',
   'supabase_lockdown_direct_writes.sql',
+  'supabase_owned_skins_revocation.sql',
 ];
 const sqlOf = (f) => readFileSync(resolve(ROOT, f), 'utf8');
 
@@ -323,6 +324,74 @@ describe('RPC behaviour', () => {
     it('the free default skin can always be re-equipped', async () => {
       expect((await call(U1, "select public.equip_skin('dragon-default')")).code).toBeUndefined();
       expect((await equipped(U1)).equipped_skin_id).toBe('dragon-default');
+    });
+  });
+
+  // REGRESSION (adversarial security review): stripe-webhook used to DELETE an owned_skins row
+  // on refund/dispute. Stripe redelivers webhook events for days on anything but a 2xx, and the
+  // original grant is a plain upsert on (user_id, skin_id) -- so once the row was gone, a
+  // redelivered copy of the *original* grant event landed on an empty primary-key slot and
+  // silently re-granted a skin whose payment no longer held. Own user (U4), untouched by every
+  // other describe block above, so this doesn't interact with dragon-red ownership set up
+  // elsewhere in this file.
+  describe('REGRESSION: grant_owned_skin/tombstoning survives a replayed grant after a refund', () => {
+    const U4 = '44444444-4444-4444-4444-444444444444';
+    const grant = (sessionId, amount = 199) =>
+      db.query(
+        `select public.grant_owned_skin($1, 'dragon-red', $2, $3, 'usd')`,
+        [U4, sessionId, amount],
+      );
+    const rowFor = async () =>
+      (await db.query(
+        `select stripe_checkout_session_id, amount_paid_cents, revoked_at from public.owned_skins
+         where user_id = $1 and skin_id = 'dragon-red'`,
+        [U4],
+      )).rows[0];
+    // What stripe-webhook itself now does on charge.refunded/charge.dispute.created.
+    const revoke = () =>
+      db.query(
+        `update public.owned_skins set revoked_at = now() where user_id = $1 and skin_id = 'dragon-red'`,
+        [U4],
+      );
+
+    it('starts with no owned_skins row for the fresh U4 user', async () => {
+      await db.query("insert into auth.users (id, email) values ($1, 'u4@example.test')", [U4]);
+      expect((await rowFor())).toBeUndefined();
+    });
+
+    it('grants a fresh row with revoked_at null', async () => {
+      await grant('cs_orig');
+      expect(await rowFor()).toEqual({ stripe_checkout_session_id: 'cs_orig', amount_paid_cents: 199, revoked_at: null });
+    });
+
+    it('a plain retry of the same grant event (same session) stays a harmless no-op', async () => {
+      await grant('cs_orig');
+      const r = await rowFor();
+      expect(r.stripe_checkout_session_id).toBe('cs_orig');
+      expect(r.revoked_at).toBeNull();
+      expect((await db.query("select count(*)::int as n from public.owned_skins where user_id = $1 and skin_id = 'dragon-red'", [U4])).rows[0].n).toBe(1);
+    });
+
+    it('a refund tombstones the row (revoked_at set) rather than deleting it, and equip_skin then refuses it', async () => {
+      await revoke();
+      const r = await rowFor();
+      expect(r).toBeTruthy(); // still there -- not deleted
+      expect(r.revoked_at).not.toBeNull();
+      expect((await call(U4, "select public.equip_skin('dragon-red')")).message).toContain('skin not owned');
+    });
+
+    it('REGRESSION: a redelivered/replayed copy of the ORIGINAL grant event (same session id) does NOT resurrect the revoked row', async () => {
+      await grant('cs_orig'); // exact same session id that was just revoked above
+      const r = await rowFor();
+      expect(r.revoked_at).not.toBeNull(); // still revoked
+      expect((await call(U4, "select public.equip_skin('dragon-red')")).message).toContain('skin not owned');
+    });
+
+    it('a genuine repurchase (a NEW checkout session) after the refund DOES restore ownership', async () => {
+      await grant('cs_new', 249);
+      const r = await rowFor();
+      expect(r).toEqual({ stripe_checkout_session_id: 'cs_new', amount_paid_cents: 249, revoked_at: null });
+      expect((await call(U4, "select public.equip_skin('dragon-red')")).code).toBeUndefined();
     });
   });
 

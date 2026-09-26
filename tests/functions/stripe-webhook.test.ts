@@ -13,8 +13,30 @@ interface Call { op: string; table: string; [k: string]: unknown }
 interface FakeDbOptions {
   // Responder for `.from(table).select(...).eq(col, val).maybeSingle()`.
   select?: (table: string, col: string, val: unknown) => { data: unknown };
-  upsertError?: { message: string; code?: string } | null;
-  deleteError?: { message: string } | null;
+  // Error from the grant_owned_skin RPC call (replaces the old plain upsert -- see
+  // supabase_owned_skins_revocation.sql for why granting needs conditional logic now).
+  rpcError?: { message: string; code?: string } | null;
+  // Error from the owned_skins revoke (now an update that sets revoked_at, not a delete).
+  revokeError?: { message: string } | null;
+}
+
+// `.update(patch).eq(...).eq(...)` (owned_skins revoke) and `.update(patch).eq(...)` (profiles
+// equipped-skin reset) both need to work from the same builder -- it accumulates filters through
+// as many .eq() calls as the caller makes and only records/resolves once actually awaited, by
+// being thenable at every depth.
+function updateBuilder(table: string, patch: unknown, calls: Call[], errorFor: { message: string } | null) {
+  const filters: Record<string, unknown> = {};
+  const builder: Any = {
+    eq: (col: string, val: unknown) => {
+      filters[col] = val;
+      return builder;
+    },
+    then: (resolve: Any) => {
+      calls.push({ op: "update", table, patch, filters: { ...filters } });
+      resolve({ error: errorFor ?? null });
+    },
+  };
+  return builder;
 }
 
 function fakeSupabase(opts: FakeDbOptions = {}) {
@@ -26,25 +48,12 @@ function fakeSupabase(opts: FakeDbOptions = {}) {
           maybeSingle: async () => opts.select?.(table, col, val) ?? { data: null },
         }),
       }),
-      upsert: async (row: unknown, options: unknown) => {
-        calls.push({ op: "upsert", table, row, options });
-        return { error: opts.upsertError ?? null };
-      },
-      delete: () => ({
-        eq: (c1: string, v1: unknown) => ({
-          eq: async (c2: string, v2: unknown) => {
-            calls.push({ op: "delete", table, filters: { [c1]: v1, [c2]: v2 } });
-            return { error: opts.deleteError ?? null };
-          },
-        }),
-      }),
-      update: (patch: unknown) => ({
-        eq: async (col: string, val: unknown) => {
-          calls.push({ op: "update", table, patch, filter: { [col]: val } });
-          return { error: null };
-        },
-      }),
+      update: (patch: unknown) => updateBuilder(table, patch, calls, table === "owned_skins" ? opts.revokeError ?? null : null),
     }),
+    rpc: async (fn: string, params: unknown) => {
+      calls.push({ op: "rpc", table: "owned_skins", fn, params });
+      return { error: opts.rpcError ?? null };
+    },
   };
   return { client: client as Any, calls };
 }
@@ -164,7 +173,7 @@ Deno.test("accepts matching live event + live key", async () => {
   const { handler, calls } = setup({ live: true });
   const { result: res } = await quietly(() => post(handler, event("checkout.session.completed", paidSession(), true)));
   assert.equal(res.status, 200);
-  assert.equal(calls.filter((c) => c.op === "upsert").length, 1);
+  assert.equal(calls.filter((c) => c.op === "rpc").length, 1);
 });
 
 Deno.test("an unrelated event type is acknowledged and ignored", async () => {
@@ -176,23 +185,24 @@ Deno.test("an unrelated event type is acknowledged and ignored", async () => {
 
 // ---------------------------------------------------------------- granting
 
-Deno.test("grants exactly one owned_skins row for a paid session, idempotently", async () => {
+Deno.test("grants exactly one owned_skins row for a paid session, idempotently, via grant_owned_skin", async () => {
   const { handler, calls } = setup();
   const { result: res } = await quietly(() => post(handler, event("checkout.session.completed", paidSession())));
   assert.equal(res.status, 200);
   assert.equal(calls.length, 1);
   assert.deepEqual(calls[0], {
-    op: "upsert",
+    op: "rpc",
     table: "owned_skins",
-    row: {
-      user_id: "user-1",
-      skin_id: "skin-a",
-      stripe_checkout_session_id: "cs_1",
-      amount_paid_cents: 199,
-      currency: "usd",
+    fn: "grant_owned_skin",
+    // A Stripe retry (same session, same everything) must be a harmless no-op -- that's
+    // grant_owned_skin's job now (see supabase_owned_skins_revocation.sql), not a plain upsert's.
+    params: {
+      p_user_id: "user-1",
+      p_skin_id: "skin-a",
+      p_session_id: "cs_1",
+      p_amount_paid_cents: 199,
+      p_currency: "usd",
     },
-    // A Stripe retry must be a harmless no-op, not a duplicate-key error (which would 500).
-    options: { onConflict: "user_id,skin_id", ignoreDuplicates: true },
   });
 });
 
@@ -201,7 +211,7 @@ Deno.test("async_payment_succeeded grants exactly like completed", async () => {
   const { result: res } = await quietly(() => post(handler, event("checkout.session.async_payment_succeeded", paidSession())));
   assert.equal(res.status, 200);
   assert.equal(calls.length, 1);
-  assert.equal(calls[0].op, "upsert");
+  assert.equal(calls[0].op, "rpc");
 });
 
 Deno.test("REGRESSION: an unpaid (delayed-method) session grants nothing but still returns 200", async () => {
@@ -274,18 +284,18 @@ Deno.test("catalog price drift is logged loudly but the purchase is still grante
   assert.equal(res.status, 200);
   assert.ok(errors.some((e) => String(e[0]).includes("does not match current catalog price")));
   assert.equal(calls.length, 1);
-  assert.equal((calls[0].row as Any).amount_paid_cents, 199);
+  assert.equal((calls[0].params as Any).p_amount_paid_cents, 199);
 });
 
 Deno.test("a DB error while granting returns 500 so Stripe retries", async () => {
-  const { handler } = setup({ db: { upsertError: { message: "boom" } } });
+  const { handler } = setup({ db: { rpcError: { message: "boom" } } });
   const { result: res } = await quietly(() => post(handler, event("checkout.session.completed", paidSession())));
   assert.equal(res.status, 500);
 });
 
 Deno.test("a transient DB error (any code but 23503) still returns 500 and is NOT logged as unrecoverable", async () => {
   for (const code of [undefined, "08006", "57014", "40001"]) {
-    const { handler } = setup({ db: { upsertError: { message: "boom", code } } });
+    const { handler } = setup({ db: { rpcError: { message: "boom", code } } });
     const { result: res, errors } = await quietly(() => post(handler, event("checkout.session.completed", paidSession())));
     assert.equal(res.status, 500, String(code));
     assert.ok(!errors.some((e) => String(e[0]).includes("ACTION REQUIRED")), String(code));
@@ -294,7 +304,7 @@ Deno.test("a transient DB error (any code but 23503) still returns 500 and is NO
 
 Deno.test("an unknown skin_id (FK violation 23503): 200 so Stripe stops retrying, ACTION REQUIRED log with the details", async () => {
   const { handler } = setup({
-    db: { upsertError: { message: 'insert or update on table "owned_skins" violates foreign key constraint', code: "23503" } },
+    db: { rpcError: { message: 'insert or update on table "owned_skins" violates foreign key constraint', code: "23503" } },
   });
   const { result: res, errors } = await quietly(() => post(handler, event("checkout.session.completed", paidSession())));
   assert.equal(res.status, 200);
@@ -305,7 +315,7 @@ Deno.test("an unknown skin_id (FK violation 23503): 200 so Stripe stops retrying
 });
 
 Deno.test("async_payment_succeeded with an unknown skin is handled the same way", async () => {
-  const { handler } = setup({ db: { upsertError: { message: "fk", code: "23503" } } });
+  const { handler } = setup({ db: { rpcError: { message: "fk", code: "23503" } } });
   const { result: res, errors } = await quietly(() => post(handler, event("checkout.session.async_payment_succeeded", paidSession())));
   assert.equal(res.status, 200);
   assertActionRequired(errors);
@@ -328,26 +338,32 @@ const fullRefund = (over: Record<string, unknown> = {}) => ({
 });
 const sessionsFor = (pi = "pi_1") => ({ [pi]: [{ id: "cs_1", metadata: { user_id: "user-1", skin_id: "skin-a" } }] });
 
-Deno.test("REGRESSION: a full refund revokes the skin", async () => {
+// Revoke helper -- tombstones (revoked_at set), never deletes (supabase_owned_skins_revocation.sql).
+function revokeCalls(calls: Call[]) {
+  return calls.filter((c) => c.op === "update" && c.table === "owned_skins");
+}
+
+Deno.test("REGRESSION: a full refund tombstones the skin (revoked_at set, row not deleted)", async () => {
   const { handler, calls, listCalls } = setup({ sessions: sessionsFor() });
   const { result: res } = await quietly(() => post(handler, event("charge.refunded", fullRefund())));
   assert.equal(res.status, 200);
   assert.deepEqual(listCalls, [{ payment_intent: "pi_1", limit: 1 }]);
-  assert.deepEqual(calls.filter((c) => c.op === "delete"), [
-    { op: "delete", table: "owned_skins", filters: { user_id: "user-1", skin_id: "skin-a" } },
-  ]);
+  const revokes = revokeCalls(calls);
+  assert.equal(revokes.length, 1);
+  assert.deepEqual(revokes[0].filters, { user_id: "user-1", skin_id: "skin-a" });
+  assert.equal(typeof (revokes[0].patch as Any).revoked_at, "string");
 });
 
-Deno.test("REGRESSION: a dispute revokes the skin", async () => {
+Deno.test("REGRESSION: a dispute revokes (tombstones) the skin", async () => {
   const { handler, calls } = setup({ sessions: sessionsFor() });
   const { result: res } = await quietly(() =>
     post(handler, event("charge.dispute.created", { id: "dp_1", payment_intent: "pi_1", amount: 199 }))
   );
   assert.equal(res.status, 200);
-  assert.equal(calls.filter((c) => c.op === "delete").length, 1);
+  assert.equal(revokeCalls(calls).length, 1);
 });
 
-Deno.test("a partial refund keeps the skin (no lookup, no delete)", async () => {
+Deno.test("a partial refund keeps the skin (no lookup, no revoke)", async () => {
   const { handler, calls, listCalls } = setup({ sessions: sessionsFor() });
   const { result: res } = await quietly(() => post(handler, event("charge.refunded", fullRefund({ amount_refunded: 1 }))));
   assert.equal(res.status, 200);
@@ -359,7 +375,7 @@ Deno.test("a dispute is not subject to the partial-refund check", async () => {
   // Disputes have no amount_refunded -- must not be mistaken for a partial refund.
   const { handler, calls } = setup({ sessions: sessionsFor() });
   await quietly(() => post(handler, event("charge.dispute.created", { id: "dp_1", payment_intent: "pi_1" })));
-  assert.equal(calls.filter((c) => c.op === "delete").length, 1);
+  assert.equal(revokeCalls(calls).length, 1);
 });
 
 Deno.test("revoking the currently-equipped skin resets the profile to the default skin", async () => {
@@ -376,12 +392,12 @@ Deno.test("revoking the currently-equipped skin resets the profile to the defaul
     },
   });
   await quietly(() => post(handler, event("charge.refunded", fullRefund())));
-  assert.deepEqual(calls.filter((c) => c.op === "update"), [
+  assert.deepEqual(calls.filter((c) => c.op === "update" && c.table === "profiles"), [
     {
       op: "update",
       table: "profiles",
       patch: { equipped_skin_id: "pig", avatar: "P", color_filter: "none" },
-      filter: { user_id: "user-1" },
+      filters: { user_id: "user-1" },
     },
   ]);
 });
@@ -392,24 +408,24 @@ Deno.test("revoking a skin that is NOT equipped leaves the profile alone", async
     db: { select: (table) => (table === "profiles" ? { data: { equipped_skin_id: "some-other-skin" } } : { data: null }) },
   });
   await quietly(() => post(handler, event("charge.refunded", fullRefund())));
-  assert.equal(calls.filter((c) => c.op === "update").length, 0);
-  assert.equal(calls.filter((c) => c.op === "delete").length, 1);
+  assert.equal(calls.filter((c) => c.op === "update" && c.table === "profiles").length, 0);
+  assert.equal(revokeCalls(calls).length, 1);
 });
 
 Deno.test("an expanded payment_intent object is handled like a string id", async () => {
   const { handler, calls } = setup({ sessions: sessionsFor() });
   await quietly(() => post(handler, event("charge.refunded", fullRefund({ payment_intent: { id: "pi_1" } }))));
-  assert.equal(calls.filter((c) => c.op === "delete").length, 1);
+  assert.equal(revokeCalls(calls).length, 1);
 });
 
-Deno.test("a refund with no payment_intent returns 200 and deletes nothing", async () => {
+Deno.test("a refund with no payment_intent returns 200 and revokes nothing", async () => {
   const { handler, calls } = setup();
   const { result: res } = await quietly(() => post(handler, event("charge.refunded", fullRefund({ payment_intent: null }))));
   assert.equal(res.status, 200);
   assert.deepEqual(calls, []);
 });
 
-Deno.test("a refund whose session can't be resolved returns 200 and deletes nothing", async () => {
+Deno.test("a refund whose session can't be resolved returns 200 and revokes nothing", async () => {
   const { handler, calls } = setup({ sessions: {} });
   const { result: res } = await quietly(() => post(handler, event("charge.refunded", fullRefund())));
   assert.equal(res.status, 200);
@@ -417,7 +433,36 @@ Deno.test("a refund whose session can't be resolved returns 200 and deletes noth
 });
 
 Deno.test("a DB error while revoking returns 500 so Stripe retries", async () => {
-  const { handler } = setup({ sessions: sessionsFor(), db: { deleteError: { message: "boom" } } });
+  const { handler } = setup({ sessions: sessionsFor(), db: { revokeError: { message: "boom" } } });
   const { result: res } = await quietly(() => post(handler, event("charge.refunded", fullRefund())));
   assert.equal(res.status, 500);
+});
+
+// ---------------------------------------------------------------- REGRESSION: revoke can't be undone by a replayed grant
+//
+// grant_owned_skin (supabase_owned_skins_revocation.sql) is what actually enforces this -- these
+// tests only confirm the handler always calls through to it with the session id that lets it
+// tell "replay of the revoked purchase" apart from "genuine repurchase." The two scenarios below
+// are indistinguishable at the handler layer (both are just "a checkout.session.completed for
+// user-1/skin-a arrives"); the RPC call it makes is identical in both cases by design, and it's
+// the DB function's job -- covered by tests/sql -- to treat a matching vs. a different session
+// id differently.
+
+Deno.test("REGRESSION: a redelivered grant event for an already-revoked purchase still calls grant_owned_skin with that purchase's own session id (lets the DB refuse to resurrect it)", async () => {
+  const { handler, calls } = setup();
+  // Same session id ("cs_1", from paidSession()) as whatever originally granted skin-a --
+  // exactly what a Stripe retry/redelivery of the *original* event looks like.
+  await quietly(() => post(handler, event("checkout.session.completed", paidSession())));
+  assert.equal(calls.length, 1);
+  assert.equal((calls[0].params as Any).p_session_id, "cs_1");
+  // The handler itself has no idea whether cs_1 was already revoked -- it always calls through;
+  // grant_owned_skin is what's responsible for that no-op (see supabase_owned_skins_revocation.sql
+  // and the SQL-level regression test for it).
+});
+
+Deno.test("REGRESSION: a genuine repurchase after a refund uses a new session id, distinguishing it from a replay", async () => {
+  const { handler, calls } = setup();
+  await quietly(() => post(handler, event("checkout.session.completed", paidSession({ id: "cs_2" }))));
+  assert.equal(calls.length, 1);
+  assert.equal((calls[0].params as Any).p_session_id, "cs_2");
 });

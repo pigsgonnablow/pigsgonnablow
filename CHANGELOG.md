@@ -2,6 +2,40 @@
 
 Running log of notable changes, kept during dev sessions for reference.
 
+## 2026-09-26 (closing the two deferred issues from the 2026-09-24 security review)
+
+Both items explicitly deferred two days ago, now fixed:
+
+- **Webhook idempotency didn't survive a delete-based revoke.** `stripe-webhook` used to DELETE
+  an `owned_skins` row on `charge.refunded`/`charge.dispute.created` -- but Stripe redelivers
+  webhook events for up to ~3 days on anything but a 2xx, and the grant path is a plain upsert
+  keyed on `(user_id, skin_id)`. Once the row was gone, a redelivered copy of the *original*
+  grant event landed on an empty primary-key slot and silently re-granted a skin whose payment no
+  longer held. Fixed by tombstoning instead of deleting: `owned_skins` gets a new `revoked_at`
+  column (`supabase_lockdown_direct_writes.sql`, alongside the matching `equip_skin` ownership-
+  check update so an equip can't survive its own refund), and grants now go through a new
+  `grant_owned_skin()` function (`supabase_owned_skins_revocation.sql`) that refuses to resurrect
+  a row revoked under the exact same checkout session -- while still allowing a genuine
+  repurchase (a new session id) after a refund to grant normally. `js/shop.js`/`js/myskins.js`/
+  `create-checkout` all updated to filter `revoked_at is null` when reading ownership. Covered by
+  new tests in `tests/sql/lockdown.test.js` (the real enforcement layer) and
+  `tests/functions/stripe-webhook.test.ts`.
+- **`create-checkout`'s "already own" check was check-then-act.** Two requests for the same skin
+  fired close together (double-click, a retried fetch, two browser tabs) could both pass the
+  ownership check before either had created a Checkout Session, each getting its own session and
+  letting the buyer be charged twice for one skin (the webhook's grant is idempotent per *skin*,
+  not per *charge* -- a second payment would just be silently absorbed, not refused). Fixed with
+  a stable Stripe idempotency key scoped to `user_id:skin_id`, so concurrent or retried clicks
+  within Stripe's ~24h idempotency window return the same session instead of creating a new one.
+  Covered by new tests in `tests/functions/create-checkout.test.ts`.
+
+Cache bumped to `burger-pig-v32` (`js/shop.js`/`js/myskins.js` changed).
+
+Still open, unrelated to this pass: COPPA/children's-privacy risk, no Terms of Service/refund
+policy, jsdelivr CDN single point of failure, no global error handler on the game loop -- all
+flagged by the original 4-agent readiness review, none of them code fixes a security pass can
+make unilaterally.
+
 ## 2026-09-24 (public-readiness hardening, from an adversarial security review)
 
 An adversarial pass (building and running real exploit attempts against the local PGlite test

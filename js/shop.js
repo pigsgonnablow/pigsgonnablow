@@ -46,7 +46,7 @@ export function createShop({ auth, elements }){
     const { session } = auth.getState();
     let ownedIds = new Set();
     if (session){
-      const { data: owned } = await sb.from('owned_skins').select('skin_id').eq('user_id', session.user.id);
+      const { data: owned } = await sb.from('owned_skins').select('skin_id').eq('user_id', session.user.id).is('revoked_at', null);
       if (myGeneration !== renderGeneration) return;
       if (owned) ownedIds = new Set(owned.map(o => o.skin_id));
     }

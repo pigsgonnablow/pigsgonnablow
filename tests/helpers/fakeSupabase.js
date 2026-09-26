@@ -1,6 +1,7 @@
 // A hand-rolled stand-in for the slice of supabase-js the js/*.js modules use. Not a
 // general mock: it supports exactly the chains those modules call
 //   from(t).select().eq().order().limit()        (awaited directly -- the builder is a thenable)
+//   from(t).select().eq().is().maybeSingle()
 //   from(t).select().eq().maybeSingle()
 //   from(t).insert(row)
 //   rpc(name, args)
@@ -36,6 +37,7 @@ export function createFakeSupabase(results = {}) {
     const builder = {
       select(cols) { q.columns = cols; return builder; },
       eq(col, val) { q.filters.push([col, val]); return builder; },
+      is(col, val) { q.filters.push([col, val]); return builder; },
       order() { return builder; },
       limit() { return builder; },
       insert(row) { q.op = 'insert'; q.row = row; log.inserts.push({ table, row }); return builder; },

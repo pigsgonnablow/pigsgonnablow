@@ -42,7 +42,7 @@ export function createMySkins({ auth, elements }){
       return;
     }
 
-    const { data: owned } = await sb.from('owned_skins').select('skin_id').eq('user_id', session.user.id);
+    const { data: owned } = await sb.from('owned_skins').select('skin_id').eq('user_id', session.user.id).is('revoked_at', null);
     if (myGeneration !== renderGeneration) return;
     const ownedIds = new Set((owned || []).map(o => o.skin_id));
     const equippedId = profile ? profile.equipped_skin_id : null;

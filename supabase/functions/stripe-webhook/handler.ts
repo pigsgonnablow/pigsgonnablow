@@ -105,20 +105,20 @@ export function createHandler({ stripe, supabaseAdmin, webhookSecret, isLiveKey 
       }
 
       // Stripe retries webhook delivery on anything but a 2xx response, so this can run more
-      // than once for the same purchase -- upsert on the (user_id, skin_id) primary key rather
-      // than insert, so a retry is a harmless no-op instead of an error.
-      const { error } = await supabaseAdmin
-        .from("owned_skins")
-        .upsert(
-          {
-            user_id: userId,
-            skin_id: skinId,
-            stripe_checkout_session_id: session.id,
-            amount_paid_cents: session.amount_total,
-            currency: session.currency,
-          },
-          { onConflict: "user_id,skin_id", ignoreDuplicates: true },
-        );
+      // than once for the same purchase. grant_owned_skin (supabase_owned_skins_revocation.sql)
+      // upserts on the (user_id, skin_id) primary key like a plain upsert would, but with one
+      // extra guard a plain upsert can't express: it refuses to resurrect a row that was
+      // revoked (refund/dispute) under this exact same checkout session -- otherwise a
+      // replayed/redelivered copy of *this* grant event, arriving after that revoke, would
+      // silently re-grant a skin whose payment no longer holds. A genuine repurchase (a new
+      // session id) still grants normally.
+      const { error } = await supabaseAdmin.rpc("grant_owned_skin", {
+        p_user_id: userId,
+        p_skin_id: skinId,
+        p_session_id: session.id,
+        p_amount_paid_cents: session.amount_total,
+        p_currency: session.currency,
+      });
       // 23503 = foreign_key_violation: the skin_id (or user) in the metadata doesn't exist, so
       // no retry can ever succeed -- unlike every other DB error, which may be transient.
       if (error?.code === "23503") {
@@ -163,13 +163,16 @@ export function createHandler({ stripe, supabaseAdmin, webhookSecret, isLiveKey 
         return new Response(JSON.stringify({ received: true }), { headers: { "Content-Type": "application/json" } });
       }
 
-      const { error: deleteError } = await supabaseAdmin
+      // Tombstoned (revoked_at set), not deleted -- deleting would free up the (user_id, skin_id)
+      // primary-key slot for a later-replayed grant event to silently re-fill (see
+      // supabase_owned_skins_revocation.sql and grant_owned_skin's guard above).
+      const { error: revokeError } = await supabaseAdmin
         .from("owned_skins")
-        .delete()
+        .update({ revoked_at: new Date().toISOString() })
         .eq("user_id", userId)
         .eq("skin_id", skinId);
-      if (deleteError) {
-        console.error("[stripe-webhook] failed to revoke skin after refund/dispute:", deleteError.message, { userId, skinId });
+      if (revokeError) {
+        console.error("[stripe-webhook] failed to revoke skin after refund/dispute:", revokeError.message, { userId, skinId });
         return new Response("DB error", { status: 500 });
       }
 

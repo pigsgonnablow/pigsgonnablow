@@ -78,6 +78,7 @@ export function createHandler({ stripe, supabaseFor, getSiteUrl }: CheckoutDeps)
         .select("skin_id")
         .eq("user_id", user.id)
         .eq("skin_id", skin_id)
+        .is("revoked_at", null)
         .maybeSingle();
       if (owned) {
         return new Response(JSON.stringify({ error: "You already own that skin." }), {
@@ -102,6 +103,18 @@ export function createHandler({ stripe, supabaseFor, getSiteUrl }: CheckoutDeps)
         // rather than tagging every skin in the catalog with a tax code it doesn't need.
         // deno-lint-ignore no-explicit-any
         ...({ managed_payments: { enabled: false } } as any),
+      }, {
+        // The "already own it" check above is check-then-act: two requests for the same skin
+        // fired close together (double-click, retried fetch, two tabs) both pass it before
+        // either has created a session, so both would otherwise get their own session and the
+        // buyer could be charged twice for one skin (the webhook's grant is idempotent per
+        // *skin*, not per *charge* -- it would just silently absorb the second payment, not
+        // refuse it). A stable idempotency key scoped to this user+skin makes Stripe itself
+        // dedupe: any request with the same key within its ~24h window returns the *original*
+        // session instead of creating a new one, so concurrent or retried clicks can only ever
+        // produce one charge. A later, separate purchase attempt (after that window, or once
+        // the earlier session has expired/completed) mints a fresh key naturally next day.
+        idempotencyKey: `create-checkout:${user.id}:${skin.id}`,
       });
 
       return new Response(JSON.stringify({ url: session.url }), {

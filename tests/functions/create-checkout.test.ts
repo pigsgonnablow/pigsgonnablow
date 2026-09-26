@@ -42,6 +42,10 @@ function setup(o: Setup = {}) {
           filters[col] = val;
           return chain;
         },
+        is: (col: string, val: unknown) => {
+          filters[col] = val;
+          return chain;
+        },
         maybeSingle: async () => {
           if (table === "skins") {
             return { data: "skin" in o ? o.skin : PURCHASABLE, error: o.skinError ?? null };
@@ -53,11 +57,13 @@ function setup(o: Setup = {}) {
     },
   };
 
+  const sessionOptions: Any[] = [];
   const stripe = {
     checkout: {
       sessions: {
-        create: async (params: Any) => {
+        create: async (params: Any, options: Any) => {
           sessionParams.push(params);
+          sessionOptions.push(options);
           if (o.stripeError) throw o.stripeError;
           return { url: "https://checkout.stripe.com/c/pay/cs_test_1" };
         },
@@ -73,7 +79,7 @@ function setup(o: Setup = {}) {
     },
     getSiteUrl: () => o.siteUrl ?? "https://www.pigsgonnablow.com",
   });
-  return { handler, queries, sessionParams, authHeaders };
+  return { handler, queries, sessionParams, sessionOptions, authHeaders };
 }
 
 function post(body: unknown, headers: Record<string, string> = { Authorization: "Bearer jwt" }) {
@@ -245,11 +251,36 @@ Deno.test("already owned: 400 and no second session (no double-buy)", async () =
   assert.equal(t.sessionParams.length, 0);
 });
 
-Deno.test("ownership check is scoped to both the user and the skin", async () => {
+Deno.test("ownership check is scoped to both the user and the skin, and excludes revoked rows", async () => {
   const t = setup();
   await t.handler(post({ skin_id: "unicorn" }));
   const q = t.queries.find((q) => q.table === "owned_skins")!;
-  assert.deepEqual(q.filters, { user_id: "user-1", skin_id: "unicorn" });
+  assert.deepEqual(q.filters, { user_id: "user-1", skin_id: "unicorn", revoked_at: null });
+});
+
+// REGRESSION (adversarial security review): the "already own it" check is check-then-act --
+// without a stable idempotency key, two requests fired close together (double-click, a retried
+// fetch, two tabs) could both pass that check before either created a session, each getting its
+// own Stripe Checkout Session and letting the buyer be charged twice for one skin.
+Deno.test("REGRESSION: checkout session creation carries a stable per-user-per-skin idempotency key", async () => {
+  const t = setup();
+  await t.handler(post({ skin_id: "unicorn" }));
+  assert.equal(t.sessionOptions.length, 1);
+  const key = t.sessionOptions[0]?.idempotencyKey;
+  assert.equal(typeof key, "string");
+  assert.ok(key.includes("user-1"), key);
+  assert.ok(key.includes("unicorn"), key);
+});
+
+Deno.test("REGRESSION: the idempotency key is stable across repeated calls for the same user+skin, but differs across users/skins", async () => {
+  const t1 = setup();
+  await t1.handler(post({ skin_id: "unicorn" }));
+  await t1.handler(post({ skin_id: "unicorn" }));
+  assert.equal(t1.sessionOptions[0].idempotencyKey, t1.sessionOptions[1].idempotencyKey);
+
+  const t2 = setup({ user: { id: "user-2" } });
+  await t2.handler(post({ skin_id: "unicorn" }));
+  assert.notEqual(t2.sessionOptions[0].idempotencyKey, t1.sessionOptions[0].idempotencyKey);
 });
 
 Deno.test("Stripe failure: generic 500 that doesn't leak the underlying error", async () => {

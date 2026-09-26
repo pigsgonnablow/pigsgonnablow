@@ -133,8 +133,13 @@ begin
   end if;
 
   if v_price > 0 then
+    -- `and revoked_at is null` -- a refund/dispute tombstones (rather than deletes) the
+    -- owned_skins row (see the revoked_at column added further down in this same file, and
+    -- grant_owned_skin() in supabase_owned_skins_revocation.sql for the write side); without
+    -- this, an equip made before the refund would keep working after it, and a *new* equip of
+    -- the same now-unpaid-for skin would still be allowed.
     select exists(
-      select 1 from public.owned_skins where user_id = auth.uid() and skin_id = p_skin_id
+      select 1 from public.owned_skins where user_id = auth.uid() and skin_id = p_skin_id and revoked_at is null
     ) into v_owns;
     if not v_owns then
       raise exception 'skin not owned';
@@ -194,6 +199,15 @@ revoke insert, update, delete, truncate on public.skins, public.owned_skins from
 revoke delete, truncate on public.scores, public.profiles from anon, authenticated;
 alter table public.skins force row level security;
 alter table public.owned_skins force row level security;
+
+-- Lets a refund/dispute revoke a skin without deleting its owned_skins row -- see
+-- supabase_owned_skins_revocation.sql's grant_owned_skin() for why deleting is itself a hole
+-- (it frees the (user_id, skin_id) primary-key slot for a later-replayed grant event to
+-- silently re-fill). Added here, in the file already responsible for equip_skin(), rather than
+-- only in that later file, specifically so this file stays self-contained and genuinely
+-- re-runnable end to end: equip_skin() is redefined by CREATE OR REPLACE below, which would
+-- otherwise silently drop the revoked-row check right back out on a re-run of this file alone.
+alter table public.owned_skins add column if not exists revoked_at timestamptz;
 
 -- The 1,000,000 ceiling on scores.score (supabase_scores_schema.sql) was sized to obviously
 -- never be hit by real play, but that headroom is exactly what makes bulk abuse effective: a
