@@ -19,6 +19,33 @@ then visit `http://localhost:8000`.
 4. Open that URL in Chrome on Android → menu (⋮) → **Install app** (or you'll see an
    "Add to Home Screen" banner automatically).
 
+## Deploying a schema change (Supabase)
+The `supabase_*.sql` files in the repo root are the source of truth `tests/sql/` runs against
+(see below) -- keep editing/adding those as before. To actually apply a change to the live
+project, use the Supabase CLI (installed as a dev dependency, so `npx`/`npm run` reach it with
+no global install) instead of pasting into the SQL Editor by hand:
+
+```
+cp supabase_whatever_schema.sql supabase/migrations/$(date +%Y%m%d%H%M%S)_whatever_schema.sql
+npm run db:diff   # supabase db push --dry-run -- shows what WOULD run, touches nothing
+npm run db:push   # supabase db push -- actually applies it, and only what hasn't run yet
+```
+
+`supabase migration list` shows which migrations are applied locally vs. on the live project --
+useful for confirming a fix you committed actually made it to the database (this is what
+surfaced, on 2026-09-26, that an earlier round of hardening had been committed but never
+actually run). Every file here needs to be safe to re-run (idempotent): `create table if not
+exists`, `create or replace function`, `drop policy if exists` before `create policy` (Postgres
+has no `create policy if not exists`), `alter table ... add column if not exists`, etc. -- the
+existing files are all written this way; keep new ones consistent.
+
+Edge Function code changes need their own deploy, independent of both the above and of
+`git push` (which only updates the static site via GitHub Pages):
+```
+npx supabase functions deploy stripe-webhook --no-verify-jwt
+npx supabase functions deploy create-checkout
+```
+
 ## Tests
 The game itself has no build step, but there's dev-only test tooling (`npm install` once):
 
