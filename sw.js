@@ -1,8 +1,9 @@
-const CACHE_NAME = 'burger-pig-v32';
+const CACHE_NAME = 'burger-pig-v33';
 const ASSETS = [
   './',
   './index.html',
   './privacy.html',
+  './terms.html',
   './manifest.json',
   './icon-192.png',
   './icon-512.png',

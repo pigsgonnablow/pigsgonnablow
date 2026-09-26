@@ -55,6 +55,33 @@ describe('Content-Security-Policy', () => {
   });
 });
 
+// REGRESSION (public-readiness review): privacy.html says "we don't knowingly collect personal
+// information from anyone under 13" -- but nothing backed that up as an actual practice until
+// this. The one place the game ever collects personal information (an email address, for
+// magic-link sign-in) now requires an affirmative age confirmation first.
+describe('the age-confirmation checkbox actually gates sending a magic link', () => {
+  it('the checkbox exists in the sign-in form', () => {
+    expect(html).toMatch(/id="ageConfirmCheckbox"[^>]*type="checkbox"|type="checkbox"[^>]*id="ageConfirmCheckbox"/);
+  });
+
+  it("SEND LOGIN LINK's click handler refuses to proceed (no auth.sendMagicLink call) unless the checkbox is checked", () => {
+    const body = blockAfter("accountSendLinkBtn.addEventListener('click'");
+    const ageCheckIndex = body.indexOf('ageConfirmCheckbox.checked');
+    const sendCallIndex = body.indexOf('auth.sendMagicLink(');
+    expect(ageCheckIndex).toBeGreaterThanOrEqual(0);
+    expect(sendCallIndex).toBeGreaterThan(ageCheckIndex); // the age check must come first
+    // and it must actually return/exit on failure, not just read the value
+    expect(body).toMatch(/ageConfirmCheckbox\.checked\s*\)\s*\{[^}]*return/);
+  });
+});
+
+describe('Terms of Service is linked next to the Privacy Policy', () => {
+  it('both links are present in the footer', () => {
+    expect(html).toContain('href="./privacy.html"');
+    expect(html).toContain('href="./terms.html"');
+  });
+});
+
 describe("REGRESSION: leaving a game screen hides the in-game overlays (#warning lives outside #hud)", () => {
   const paths = {
     endGame: () => blockAfter('function endGame('),

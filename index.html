@@ -215,6 +215,10 @@
         <button id="accountSignInBtn">LOGIN</button>
         <div id="accountEmailForm" class="hidden">
           <input id="accountEmailInput" type="email" placeholder="you@example.com" autocomplete="email">
+          <label style="display:block; font-size:11px; color:#9aa7c2; margin:6px 0; text-align:left;">
+            <input type="checkbox" id="ageConfirmCheckbox" style="vertical-align:middle;">
+            I am 13 years of age or older
+          </label>
           <button id="accountSendLinkBtn">SEND LOGIN LINK</button>
         </div>
       </div>
@@ -229,7 +233,10 @@
       </div>
       <p id="accountStatus"></p>
     </div>
-    <p style="font-size:11px; margin-top:14px;"><a href="./privacy.html" style="color:#9aa7c2;">Privacy Policy</a></p>
+    <p style="font-size:11px; margin-top:14px;">
+      <a href="./privacy.html" style="color:#9aa7c2;">Privacy Policy</a> ·
+      <a href="./terms.html" style="color:#9aa7c2;">Terms</a>
+    </p>
   </div>
 
   <div id="gameOver" class="hidden" style="position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; background:rgba(10,15,30,0.92); color:#fff; padding:24px; overflow-y:auto; -webkit-overflow-scrolling:touch; touch-action:pan-y;">
@@ -408,6 +415,7 @@ import { resolveInputDirection, screenInputToWorldMove, easedVelocity, easedPitc
   const accountEmailForm = document.getElementById('accountEmailForm');
   const accountSignInBtn = document.getElementById('accountSignInBtn');
   const accountEmailInput = document.getElementById('accountEmailInput');
+  const ageConfirmCheckbox = document.getElementById('ageConfirmCheckbox');
   const accountSendLinkBtn = document.getElementById('accountSendLinkBtn');
   const accountNeedsName = document.getElementById('accountNeedsName');
   const displayNameInput = document.getElementById('displayNameInput');
@@ -422,6 +430,14 @@ import { resolveInputDirection, screenInputToWorldMove, easedVelocity, easedPitc
     accountEmailForm.classList.toggle('hidden');
   });
   accountSendLinkBtn.addEventListener('click', async () => {
+    // Backs up privacy.html's "not directed at children under 13, don't knowingly collect
+    // from anyone under 13" statement with an actual practice, not just a policy claim -- an
+    // email address is personal information, and this is the one place the game ever asks for
+    // one. Doesn't verify age (nothing short of ID verification could), but it does mean any
+    // under-13 user who gets an account got there by affirmatively lying about their age,
+    // which is what makes this a general-audience site with no actual knowledge rather than
+    // one that simply never asked.
+    if (!ageConfirmCheckbox.checked){ accountStatus.textContent = 'Please confirm you are 13 or older.'; return; }
     const email = accountEmailInput.value.trim();
     if (!email){ accountStatus.textContent = 'Enter an email first.'; return; }
     accountSendLinkBtn.disabled = true;

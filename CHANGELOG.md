@@ -2,6 +2,31 @@
 
 Running log of notable changes, kept during dev sessions for reference.
 
+## 2026-09-26 (Terms of Service + an actual age gate, not just a policy statement)
+
+Two of the remaining public-readiness items from the original 2026-09-24 review, addressed:
+
+- **Added `terms.html`** (linked in the footer next to Privacy Policy): covers what a skin
+  purchase actually is (cosmetic, non-transferable, no real-world value), an explicit
+  all-sales-final policy (chosen deliberately -- purchases are $1.99-$2.99 cosmetics, and
+  Stripe-initiated refunds/chargebacks are still honored via the existing revoke path), a
+  no-warranty disclaimer, and the same 13+ age requirement as the privacy policy.
+- **The "not directed at children under 13" line in `privacy.html` is now backed by an actual
+  practice, not just a claim.** Added an age-confirmation checkbox to the sign-in form (the one
+  place the game ever collects personal information -- an email address, for magic-link
+  sign-in); `SEND LOGIN LINK` now refuses to proceed unless it's checked. This doesn't verify
+  age (nothing short of ID verification could), but it does mean the site is making an
+  affirmative, mixed-audience choice rather than simply never asking -- which is what COPPA's
+  "actual knowledge" / "directed to children" tests actually turn on. Distribution is general
+  gaming communities (Reddit, itch.io), not anywhere that skews young, which was the other
+  factor weighing toward general-audience rather than child-directed.
+
+Cache bumped to `burger-pig-v33` (`index.html` changed, `terms.html` added to the cache list).
+
+Still open, lower-priority: jsdelivr CDN single point of failure with no fallback/error
+messaging if it's unreachable; no global `window.onerror`/`unhandledrejection` handler on the
+game loop.
+
 ## 2026-09-26 (closing the two deferred issues from the 2026-09-24 security review)
 
 Both items explicitly deferred two days ago, now fixed:
