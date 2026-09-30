@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- Standalone stats dashboard: open this file straight from disk (double-click) or at
+     /tools/stats-dashboard.html on the live site. It only reads aggregate counts through the
+     public get_stats() RPC (see supabase_stats_schema.sql), so it needs no login or secret. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src https://ljnshaoruygijgtcokwv.supabase.co; base-uri 'none'; form-action 'none';">
+<meta name="robots" content="noindex">
+<title>Pigs Gonna Blow Stats</title>
+<style>
+  :root {
+    --bg: #04060d;
+    --panel: #0b1226;
+    --panel-edge: #16224a;
+    --grid: #1a2650;
+    --ink: #e6f4ff;
+    --ink-2: #9fb6d9;
+    --ink-3: #6a7fa8;
+    --neon: #3fe0ff;
+    --neon-dim: rgba(63, 224, 255, 0.16);
+    --glow: 0 0 12px rgba(63, 224, 255, 0.55);
+    --bad: #ff6b8b;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: radial-gradient(1200px 600px at 20% -10%, #0d1a3d 0%, var(--bg) 60%) fixed, var(--bg); color: var(--ink); }
+  body { font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; min-height: 100vh; }
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 28px 16px 48px; }
+  header { display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: flex-end; justify-content: space-between; margin-bottom: 22px; }
+  h1 { margin: 0; font-size: 26px; letter-spacing: 0.5px; color: var(--neon); text-shadow: var(--glow); }
+  .sub { color: var(--ink-3); font-size: 13px; margin-top: 4px; }
+  .controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .seg { display: inline-flex; border: 1px solid var(--panel-edge); border-radius: 999px; overflow: hidden; }
+  .seg button, .btn { background: transparent; color: var(--ink-2); border: 0; padding: 7px 14px; font: inherit; font-size: 13px; cursor: pointer; }
+  .seg button[aria-pressed="true"] { background: var(--neon-dim); color: var(--neon); }
+  .btn { border: 1px solid var(--panel-edge); border-radius: 999px; }
+  .btn:hover, .seg button:hover { color: var(--ink); }
+  button:focus-visible { outline: 2px solid var(--neon); outline-offset: 2px; }
+
+  h3.section { margin: 22px 0 10px; font-size: 12px; font-weight: 600; color: var(--ink-2); text-transform: uppercase; letter-spacing: 1.2px; }
+  h3.section:first-of-type { margin-top: 0; }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 16px; }
+  .tile { background: var(--panel); border: 1px solid var(--panel-edge); border-radius: 14px; padding: 14px 16px; }
+  .tile .label { color: var(--ink-2); font-size: 12px; text-transform: uppercase; letter-spacing: 0.8px; }
+  .tile .value { font-size: 32px; font-weight: 700; color: var(--neon); text-shadow: var(--glow); font-variant-numeric: tabular-nums; margin-top: 4px; }
+  .tile .note { color: var(--ink-3); font-size: 12px; margin-top: 2px; }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 480px), 1fr)); gap: 12px; }
+  .card { background: var(--panel); border: 1px solid var(--panel-edge); border-radius: 14px; padding: 16px; min-width: 0; }
+  .card h2 { margin: 0 0 2px; font-size: 15px; color: var(--ink); }
+  .card .hint { color: var(--ink-3); font-size: 12px; margin-bottom: 10px; }
+  svg { display: block; width: 100%; height: auto; overflow: visible; }
+  svg text { fill: var(--ink-3); font-size: 11px; font-family: inherit; }
+  svg .val { fill: var(--ink-2); }
+  .bar { pointer-events: none; fill: var(--neon); filter: drop-shadow(0 0 4px rgba(63, 224, 255, 0.45)); }
+  .hit { fill: transparent; cursor: default; }
+  .hit:hover + .bar, .bar.hot { fill: #9ff0ff; }
+  .gridline { stroke: var(--grid); stroke-width: 1; }
+  .empty { color: var(--ink-3); font-size: 13px; padding: 18px 0; }
+  details { margin-top: 8px; }
+  summary { color: var(--ink-3); font-size: 12px; cursor: pointer; }
+  table { width: 100%; border-collapse: collapse; margin-top: 6px; font-size: 12px; font-variant-numeric: tabular-nums; }
+  th, td { text-align: left; padding: 4px 6px; border-bottom: 1px solid var(--grid); color: var(--ink-2); }
+  th { color: var(--ink-3); font-weight: 600; }
+
+  #tip { position: fixed; pointer-events: none; background: #050a18; border: 1px solid var(--neon); box-shadow: var(--glow); color: var(--ink); font-size: 12px; padding: 6px 9px; border-radius: 8px; opacity: 0; transition: opacity .08s; z-index: 10; white-space: nowrap; }
+  #status { margin: 0 0 16px; padding: 12px 14px; border-radius: 12px; border: 1px solid var(--panel-edge); background: var(--panel); color: var(--ink-2); font-size: 14px; }
+  #status.error { border-color: var(--bad); color: #ffd3dd; }
+  #status:empty { display: none; }
+  code { color: var(--neon); }
+  footer { color: var(--ink-3); font-size: 12px; margin-top: 18px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>🐷💥 Pigs Gonna Blow Stats</h1>
+      <div class="sub" id="asof">Loading…</div>
+    </div>
+    <div class="controls">
+      <div class="seg" role="group" aria-label="Time range">
+        <button data-days="7" aria-pressed="false">7 days</button>
+        <button data-days="30" aria-pressed="true">30 days</button>
+        <button data-days="90" aria-pressed="false">90 days</button>
+      </div>
+      <button class="btn" id="refresh">Refresh</button>
+    </div>
+  </header>
+
+  <p id="status" role="status"></p>
+
+  <h3 class="section">Players</h3>
+  <section class="tiles" aria-label="Player totals">
+    <div class="tile"><div class="label">Visits</div><div class="value" id="t-visits">–</div><div class="note" id="n-visits"></div></div>
+    <div class="tile"><div class="label">Games started</div><div class="value" id="t-starts">–</div><div class="note" id="n-starts"></div></div>
+    <div class="tile"><div class="label">Visitors who played</div><div class="value" id="t-rate">–</div><div class="note">games started per visit</div></div>
+    <div class="tile"><div class="label">Typical run</div><div class="value" id="t-runlen">–</div><div class="note">median run length</div></div>
+    <div class="tile"><div class="label">Typical score</div><div class="value" id="t-medscore">–</div><div class="note" id="n-best"></div></div>
+    <div class="tile"><div class="label">Beat level 15</div><div class="value" id="t-wins">–</div><div class="note" id="n-wins"></div></div>
+  </section>
+
+  <section class="grid">
+    <div class="card">
+      <h2>Visits per day</h2>
+      <div class="hint">Page loads, UTC days</div>
+      <div id="c-visits"></div>
+    </div>
+    <div class="card">
+      <h2>Games started per day</h2>
+      <div class="hint">Presses of START or PLAY AGAIN, UTC days</div>
+      <div id="c-starts"></div>
+    </div>
+    <div class="card">
+      <h2>Where visitors came from</h2>
+      <div class="hint">Referring site, or the <code>?ref=</code> tag on your link. Top 10.</div>
+      <div id="c-refs"></div>
+    </div>
+    <div class="card">
+      <h2>Phone or desktop</h2>
+      <div class="hint">Visits by device: touch screens count as phone/tablet</div>
+      <div id="c-devices"></div>
+    </div>
+    <div class="card">
+      <h2>How long runs last</h2>
+      <div class="hint">Time from START to game over or exit</div>
+      <div id="c-runlen"></div>
+    </div>
+    <div class="card">
+      <h2>Where runs end</h2>
+      <div class="hint">Level reached when a run ended (game over or exit)</div>
+      <div id="c-levels"></div>
+    </div>
+  </section>
+
+  <h3 class="section">Shop and accounts</h3>
+  <section class="tiles" aria-label="Shop and account totals">
+    <div class="tile"><div class="label">Revenue</div><div class="value" id="t-revenue">–</div><div class="note" id="n-revenue"></div></div>
+    <div class="tile"><div class="label">Purchases</div><div class="value" id="t-purchases">–</div><div class="note" id="n-purchases"></div></div>
+    <div class="tile"><div class="label">New accounts</div><div class="value" id="t-accounts">–</div><div class="note" id="n-accounts"></div></div>
+    <div class="tile"><div class="label">Leaderboard entries</div><div class="value" id="t-lb">–</div><div class="note">scores submitted or improved</div></div>
+  </section>
+  <section class="grid">
+    <div class="card">
+      <h2>Shop funnel</h2>
+      <div class="hint">How far shoppers get, from opening the shop to paying</div>
+      <div id="c-funnel"></div>
+    </div>
+  </section>
+
+  <footer>Counts are anonymous: no names, emails, IPs or cookies are recorded. Only visits to pigsgonnablow.com are counted, not local copies.</footer>
+</div>
+<div id="tip" aria-hidden="true"></div>
+
+<script>
+(() => {
+  const SUPABASE_URL = 'https://ljnshaoruygijgtcokwv.supabase.co';
+  const SUPABASE_ANON_KEY = 'sb_publishable_N0dbDj1DwnHrluNRyDE6TQ_ReKaYogG';
+  const SVGNS = 'http://www.w3.org/2000/svg';
+  const $ = (id) => document.getElementById(id);
+  const fmt = (n) => Number(n || 0).toLocaleString();
+  const money = (cents) => '$' + (Number(cents || 0) / 100).toFixed(2);
+  const duration = (sec) => { sec = Math.round(sec); return sec < 60 ? `${sec}s` : `${Math.floor(sec / 60)}m ${String(sec % 60).padStart(2, '0')}s`; };
+  const tip = $('tip');
+
+  let days = 30;
+  try { const d = Number(localStorage.getItem('pgb-stats-days')); if ([7, 30, 90].includes(d)) days = d; } catch (e) {}
+
+  function el(tag, attrs = {}, parent) {
+    const node = document.createElementNS(SVGNS, tag);
+    for (const [k, v] of Object.entries(attrs)) node.setAttribute(k, v);
+    if (parent) parent.appendChild(node);
+    return node;
+  }
+  function showTip(evt, text) {
+    tip.textContent = text;
+    tip.style.opacity = 1;
+    const x = Math.min(evt.clientX + 12, window.innerWidth - tip.offsetWidth - 8);
+    tip.style.left = x + 'px';
+    tip.style.top = (evt.clientY - 36) + 'px';
+  }
+  function hideTip() { tip.style.opacity = 0; }
+  // Bars get a hit target taller than the bar itself, so short bars are still easy to hover.
+  function hoverable(hit, bar, text) {
+    hit.addEventListener('mousemove', (e) => { bar.classList.add('hot'); showTip(e, text); });
+    hit.addEventListener('mouseleave', () => { bar.classList.remove('hot'); hideTip(); });
+    hit.setAttribute('aria-label', text);
+  }
+  // Axis top for 4 gridline intervals, each a whole 1/2/5 x 10^n step, so tick labels stay round.
+  function niceMax(v) {
+    const raw = Math.max(1, v / 4), p = Math.pow(10, Math.floor(Math.log10(raw)));
+    for (const m of [1, 2, 5, 10]) if (m * p >= raw) return 4 * m * p;
+  }
+  // Charts are drawn at their container's real pixel width so text stays 11px on a phone too.
+  const widthOf = (host) => Math.max(280, Math.round(host.clientWidth || 520));
+  // A path for a bar whose top corners are rounded (radius r) and whose base sits flat on the axis.
+  function barPath(x, y, w, h, r) {
+    r = Math.min(r, w / 2, h);
+    if (h <= 0) return '';
+    return `M${x},${y + h}V${y + r}Q${x},${y} ${x + r},${y}H${x + w - r}Q${x + w},${y} ${x + w},${y + r}V${y + h}Z`;
+  }
+  function tableOf(headers, rows) {
+    const d = document.createElement('details');
+    d.innerHTML = '<summary>Show as table</summary>';
+    const t = document.createElement('table');
+    const hr = t.insertRow();
+    headers.forEach((h) => { const th = document.createElement('th'); th.textContent = h; hr.appendChild(th); });
+    rows.forEach((r) => { const tr = t.insertRow(); r.forEach((c) => { tr.insertCell().textContent = c; }); });
+    d.appendChild(t);
+    return d;
+  }
+
+  function dailyChart(host, daily, key, noun) {
+    host.replaceChildren();
+    const W = widthOf(host), H = 200, L = 34, R = 6, T = 10, B = 24;
+    const max = niceMax(Math.max(0, ...daily.map((d) => d[key])));
+    const svg = el('svg', { viewBox: `0 0 ${W} ${H}`, role: 'img', 'aria-label': `${noun} per day` }, host);
+    for (let i = 0; i <= 4; i++) {
+      const y = T + (H - T - B) * (1 - i / 4);
+      el('line', { x1: L, x2: W - R, y1: y, y2: y, class: 'gridline' }, svg);
+      el('text', { x: L - 6, y: y + 4, 'text-anchor': 'end' }, svg).textContent = fmt(Math.round(max * i / 4));
+    }
+    const n = daily.length, labelEvery = Math.ceil(n / Math.max(3, Math.floor((W - L) / 70))), slot = (W - L - R) / n, gap = Math.max(2, slot * 0.25), bw = Math.max(1, slot - gap);
+    daily.forEach((d, i) => {
+      const x = L + i * slot + gap / 2, h = (H - T - B) * (d[key] / max), y = H - B - h;
+      const hit = el('rect', { x: L + i * slot, y: T, width: slot, height: H - T - B, class: 'hit' }, svg);
+      const bar = el('path', { d: barPath(x, y, bw, h, Math.min(4, bw / 2)), class: 'bar' }, svg);
+      hoverable(hit, bar, `${d.day}: ${fmt(d[key])} ${noun.toLowerCase()}`);
+      if ((n - 1 - i) % labelEvery === 0) {
+        el('text', { x: x + bw / 2, y: H - 6, 'text-anchor': 'middle' }, svg).textContent = d.day.slice(5);
+      }
+    });
+    host.appendChild(tableOf(['Day (UTC)', noun], daily.map((d) => [d.day, fmt(d[key])])));
+  }
+
+  function hbarChart(host, items, labelOf, valueOf, noun, emptyText) {
+    host.replaceChildren();
+    if (!items.length) { host.innerHTML = `<div class="empty">${emptyText}</div>`; return; }
+    const W = widthOf(host), row = 26, L = W < 400 ? 104 : 136, R = 44, H = items.length * row + 4;
+    const max = Math.max(1, ...items.map(valueOf));
+    const svg = el('svg', { viewBox: `0 0 ${W} ${H}`, role: 'img', 'aria-label': noun }, host);
+    items.forEach((it, i) => {
+      const y = i * row + 4, w = valueOf(it) > 0 ? Math.max(2, (W - L - R) * valueOf(it) / max) : 0, label = labelOf(it);
+      el('text', { x: L - 8, y: y + 13, 'text-anchor': 'end' }, svg).textContent = label.length > (L / 7) ? label.slice(0, Math.floor(L / 7) - 1) + '…' : label;
+      const hit = el('rect', { x: 0, y: y - 2, width: W, height: row, class: 'hit' }, svg);
+      // Horizontal bar: rounded at the far (value) end, flat against the axis.
+      const r = Math.min(4, w / 2), h = row - 8;
+      const bar = el('path', { d: `M${L},${y}H${L + w - r}Q${L + w},${y} ${L + w},${y + r}V${y + h - r}Q${L + w},${y + h} ${L + w - r},${y + h}H${L}Z`, class: 'bar' }, svg);
+      el('text', { x: L + w + 6, y: y + 13, class: 'val' }, svg).textContent = fmt(valueOf(it));
+      hoverable(hit, bar, `${label}: ${fmt(valueOf(it))} ${noun.toLowerCase()}`);
+    });
+    host.appendChild(tableOf(['', noun], items.map((it) => [labelOf(it), fmt(valueOf(it))])));
+  }
+
+  let last = null;
+  let resizeTimer = 0;
+  window.addEventListener('resize', () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => { if (last) render(last); }, 150);
+  });
+
+  function render(s) {
+    last = s;
+    const t = s.totals || {}, all = s.all_time || {};
+    $('t-visits').textContent = fmt(t.visit);
+    $('n-visits').textContent = `${fmt(all.visit)} all time`;
+    $('t-starts').textContent = fmt(t.game_start);
+    $('n-starts').textContent = `${fmt(all.game_start)} all time`;
+    $('t-rate').textContent = t.visit ? Math.round(100 * (t.game_start || 0) / t.visit) + '%' : '–';
+    $('t-wins').textContent = fmt(t.victory);
+    $('n-wins').textContent = `${fmt(all.victory)} all time`;
+    const runs = s.runs || {};
+    $('t-runlen').textContent = runs.median_seconds == null ? '–' : duration(runs.median_seconds);
+    $('t-medscore').textContent = runs.median_score == null ? '–' : fmt(Math.round(runs.median_score));
+    $('n-best').textContent = runs.best_score == null ? 'median score per run' : `best ${fmt(runs.best_score)}`;
+
+    const p = s.purchases || {}, acc = s.accounts || {};
+    $('t-revenue').textContent = money(p.revenue_cents);
+    $('n-revenue').textContent = `${money(p.all_time_revenue_cents)} all time, before Stripe fees`;
+    $('t-purchases').textContent = fmt(p.count);
+    $('n-purchases').textContent = `${fmt(p.all_time_count)} all time, refunds excluded`;
+    $('t-accounts').textContent = fmt(acc.new);
+    $('n-accounts').textContent = `${fmt(acc.total)} total`;
+    $('t-lb').textContent = fmt(s.leaderboard_entries);
+
+    dailyChart($('c-visits'), s.daily || [], 'visit', 'Visits');
+    dailyChart($('c-starts'), s.daily || [], 'game_start', 'Games');
+    hbarChart($('c-refs'), s.refs || [], (r) => r.ref, (r) => r.visits, 'Visits', 'No visits in this range yet.');
+    const deviceNames = { mobile: 'Phone / tablet', desktop: 'Desktop', unknown: 'Unknown' };
+    hbarChart($('c-devices'), s.devices || [], (d) => deviceNames[d.device] || d.device, (d) => d.visits, 'Visits', 'No visits in this range yet.');
+    const lengths = (s.run_lengths || []).some((b) => b.runs) ? s.run_lengths : [];
+    hbarChart($('c-runlen'), lengths, (b) => b.bucket, (b) => b.runs, 'Runs', 'No finished runs in this range yet.');
+    const funnel = [
+      { label: 'Opened shop', n: t.shop_open || 0 },
+      { label: 'Clicked Buy', n: t.checkout_start || 0 },
+      { label: 'Paid', n: p.count || 0 },
+    ];
+    hbarChart($('c-funnel'), funnel.some((f) => f.n) ? funnel : [], (f) => f.label, (f) => f.n, 'Times', 'Nobody has opened the shop in this range yet.');
+    const levels = (s.levels || []).map((l) => ({ ...l, label: l.level >= 15 ? `Level ${l.level} (won)` : `Level ${l.level}` }));
+    hbarChart($('c-levels'), levels, (l) => l.label, (l) => l.runs, 'Runs', 'No finished runs in this range yet.');
+
+    $('asof').textContent = `Last ${s.days} days · updated ${new Date(s.generated_at).toLocaleString()}`;
+  }
+
+  function setStatus(text, isError) {
+    $('status').textContent = text;
+    $('status').className = isError ? 'error' : '';
+  }
+
+  async function load() {
+    setStatus('');
+    $('asof').textContent = 'Loading…';
+    try {
+      const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/get_stats`, {
+        method: 'POST',
+        headers: { apikey: SUPABASE_ANON_KEY, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ p_days: days })
+      });
+      if (res.status === 404) {
+        setStatus('Stats aren\'t switched on in the database yet. From the repo, run "npm run db:push" once, then refresh.', true);
+        $('asof').textContent = '';
+        return;
+      }
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      render(await res.json());
+    } catch (e) {
+      setStatus(`Couldn't load stats (${e.message}). Check your connection and press Refresh.`, true);
+      $('asof').textContent = '';
+    }
+  }
+
+  document.querySelectorAll('.seg button').forEach((b) => {
+    b.setAttribute('aria-pressed', String(Number(b.dataset.days) === days));
+    b.addEventListener('click', () => {
+      days = Number(b.dataset.days);
+      try { localStorage.setItem('pgb-stats-days', String(days)); } catch (e) {}
+      document.querySelectorAll('.seg button').forEach((o) => o.setAttribute('aria-pressed', String(o === b)));
+      load();
+    });
+  });
+  $('refresh').addEventListener('click', load);
+  setInterval(() => { if (!document.hidden) load(); }, 60_000);
+  load();
+})();
+</script>
+</body>
+</html>

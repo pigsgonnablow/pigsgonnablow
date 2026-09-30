@@ -17,7 +17,7 @@ beforeEach(() => {
 });
 afterEach(() => vi.unstubAllGlobals());
 
-function build({ owned = [], session = SESSION, functions } = {}) {
+function build({ owned = [], session = SESSION, functions, onCheckoutStart } = {}) {
   const fake = createFakeSupabase({
     tables: {
       skins: { select: { data: SKINS, error: null } },
@@ -26,7 +26,7 @@ function build({ owned = [], session = SESSION, functions } = {}) {
     functions,
   });
   const auth = { getClient: () => fake.client, getState: () => ({ session, profile: null }) };
-  return { ...fake, shop: createShop({ auth, elements }) };
+  return { ...fake, shop: createShop({ auth, elements, onCheckoutStart }) };
 }
 
 const cards = () => [...elements.listEl.querySelectorAll('.skinCard')];
@@ -114,6 +114,21 @@ describe('buy', () => {
     await flush();
     expect(log.invokes).toEqual([{ name: 'create-checkout', opts: { body: { skin_id: 'unicorn' } } }]);
     expect(window.location.href).toBe('https://checkout.stripe.com/c/pay/cs_1');
+  });
+
+  it('reports a Buy click to onCheckoutStart, and a throwing callback never blocks the checkout', async () => {
+    vi.stubGlobal('location', { href: 'https://www.pigsgonnablow.com/' });
+    const onCheckoutStart = vi.fn(() => { throw new Error('stats down'); });
+    const { shop, log } = build({
+      onCheckoutStart,
+      functions: { 'create-checkout': { data: { url: 'https://checkout.stripe.com/c/pay/cs_2' }, error: null } },
+    });
+    await shop.render();
+    btnOf(cards()[2]).click();
+    await flush();
+    expect(onCheckoutStart).toHaveBeenCalledWith('unicorn');
+    expect(log.invokes).toHaveLength(1);
+    expect(window.location.href).toBe('https://checkout.stripe.com/c/pay/cs_2');
   });
 
   it('on failure, shows an error and re-enables the button', async () => {

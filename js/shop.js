@@ -14,7 +14,7 @@ function formatPrice(cents){
   return '$' + (cents / 100).toFixed(2);
 }
 
-export function createShop({ auth, elements }){
+export function createShop({ auth, elements, onCheckoutStart }){
   const { listEl, statusEl } = elements;
   const sb = auth ? auth.getClient() : null;
 
@@ -98,6 +98,7 @@ export function createShop({ auth, elements }){
   async function buy(skinId, btn){
     btn.disabled = true;
     statusEl.textContent = 'Redirecting to checkout…';
+    try { if (onCheckoutStart) onCheckoutStart(skinId); } catch (e) { /* stats must never block a purchase */ }
     // sb.functions.invoke automatically attaches the caller's Supabase session as an
     // Authorization bearer token -- that's what create-checkout uses server-side to identify
     // the buyer, instead of trusting a user_id the client could otherwise lie about.

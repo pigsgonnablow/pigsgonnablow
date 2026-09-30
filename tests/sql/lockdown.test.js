@@ -30,6 +30,7 @@ const SCHEMA_FILES = [
   'supabase_owned_skins_revocation.sql',
   'supabase_scores_rate_limit_by_ip.sql',
   'supabase_skin_descriptions_schema.sql',
+  'supabase_stats_schema.sql',
 ];
 const sqlOf = (f) => readFileSync(resolve(ROOT, f), 'utf8');
 
@@ -45,7 +46,7 @@ async function freshDb(files = SCHEMA_FILES) {
     create role anon nologin;
     create role authenticated nologin;
     create schema auth;
-    create table auth.users (id uuid primary key, email text);
+    create table auth.users (id uuid primary key, email text, created_at timestamptz not null default now());
     create function auth.uid() returns uuid language sql stable as $$
       select nullif(coalesce(
         nullif(current_setting('request.jwt.claim.sub', true), ''),

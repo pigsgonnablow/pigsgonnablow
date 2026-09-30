@@ -2,6 +2,37 @@
 
 Running log of notable changes, kept during dev sessions for reference.
 
+## 2026-09-30 -- anonymous play stats and a local stats dashboard
+
+There was no way to tell whether a Reddit or Bluesky post actually brought anyone in: no
+analytics (privacy.html promises no third-party trackers) and GitHub Pages shows no traffic.
+Added first-party, cookie-free counting on the existing Supabase project instead:
+
+- `supabase_stats_schema.sql` (+ migration `20260930000000_stats_schema.sql`): a `public.events`
+  table (kind, level, ref, created_at -- no user id, IP or visitor id), locked down at both the
+  RLS and privilege layers, written only through `log_event()` (validates kind, clamps level,
+  normalises ref, global cap of 300 rows/minute that drops silently) and read only as aggregates
+  through `get_stats(days)`. Both RPCs are callable by anon, so the aggregate counts are
+  effectively public; that's the trade for a dashboard that needs no secret.
+- `js/stats.js`: fire-and-forget `track(kind, level)`; only reports from pigsgonnablow.com so
+  local copies and tests never pollute the numbers. `ref` is a `?ref=` tag on the link if present,
+  else the referring hostname, else `direct`. index.html tracks visit, game_start, game_over,
+  victory and quit (exit mid-run) with the run's level, score and seconds, plus shop_open and
+  checkout_start (via a new optional `onCheckoutStart` callback on `createShop`). Each event also
+  carries `mobile`/`desktop`, from `(pointer: coarse)` only.
+- `get_stats()` also counts what the schema already records, as totals only: unrefunded purchases
+  and revenue (`owned_skins`), new accounts (`auth.users`) and leaderboard writes (`scores`), so
+  it now runs after every other schema file.
+- `tools/stats-dashboard.html`: standalone dark/neon dashboard (open from disk, or at
+  /tools/stats-dashboard.html on the site): player totals, median run length and score, visits
+  and games per day, top referrers, phone vs desktop, run-length buckets, where runs end, and a
+  shop section (revenue, purchases, new accounts, leaderboard entries, shop -> Buy -> paid funnel).
+- privacy.html now describes the anonymous counts. Bumped `sw.js` CACHE_NAME (new js/stats.js, js/shop.js,
+  index.html and privacy.html changed).
+
+Needs `npm run db:push` once to create the table and RPCs; until then `log_event` 404s silently
+and the dashboard says stats aren't switched on yet.
+
 ## 2026-09-26 (still later) -- shop now tells you the Red Dragon has an ember trail
 
 The Dragon - Red skin has had a real, always-on in-game effect since the wind/gust rework (a
