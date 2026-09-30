@@ -384,6 +384,7 @@ import { createLeaderboard } from './js/leaderboard.js';
 import { createAuth } from './js/auth.js';
 import { createShop } from './js/shop.js';
 import { createMySkins } from './js/myskins.js';
+import { createStats } from './js/stats.js';
 import {
   START_LIVES, MAX_LIVES, START_BURGERS_TO_FULL, BURGER_THROW_COST,
   START_GROUND_BURGERS,
@@ -463,6 +464,18 @@ import { resolveInputDirection, screenInputToWorldMove, easedVelocity, easedPitc
   // ---------- account (Supabase Auth) + leaderboard (Supabase) ----------
   const SUPABASE_URL = 'https://ljnshaoruygijgtcokwv.supabase.co';
   const SUPABASE_ANON_KEY = 'sb_publishable_N0dbDj1DwnHrluNRyDE6TQ_ReKaYogG';
+
+  // Anonymous, cookie-free counts (visits, runs, how far runs get, referring site) -- see
+  // js/stats.js and supabase_stats_schema.sql. Only reports from the live domain.
+  const stats = createStats({
+    url: SUPABASE_URL,
+    anonKey: SUPABASE_ANON_KEY,
+    href: location.href,
+    referrer: document.referrer,
+    hostname: location.hostname,
+    fetchImpl: window.fetch ? window.fetch.bind(window) : null
+  });
+  stats.track('visit');
 
   const auth = createAuth({ url: SUPABASE_URL, anonKey: SUPABASE_ANON_KEY });
   const leaderboard = createLeaderboard({
@@ -1163,6 +1176,7 @@ import { resolveInputDirection, screenInputToWorldMove, easedVelocity, easedPitc
     finalScoreEl.textContent = 'Score: ' + score + '  •  Time: ' + formatTime(elapsedMs);
     gameOverEl.classList.remove('hidden');
 
+    stats.track('game_over', level);
     leaderboard.onGameOver(score);
   }
 
@@ -1179,6 +1193,7 @@ import { resolveInputDirection, screenInputToWorldMove, easedVelocity, easedPitc
     sfxBonus();
     victoryScoreText.textContent = 'Score: ' + score + '  •  Time: ' + formatTime(elapsedMs);
     victoryScreen.classList.remove('hidden');
+    stats.track('victory', level);
   }
   function resumeAfterVictory(){
     victoryScreen.classList.add('hidden');
@@ -1976,6 +1991,7 @@ import { resolveInputDirection, screenInputToWorldMove, easedVelocity, easedPitc
     running = true;
     lastTime = performance.now();
     startTime = lastTime;
+    stats.track('game_start');
     requestAnimationFrame(loop);
   });
   restartBtn.addEventListener('click', () => {
@@ -1987,10 +2003,12 @@ import { resolveInputDirection, screenInputToWorldMove, easedVelocity, easedPitc
     running = true;
     lastTime = performance.now();
     startTime = lastTime;
+    stats.track('game_start');
     requestAnimationFrame(loop);
   });
 
   exitBtn.addEventListener('click', () => {
+    if (running) stats.track('quit', level);
     running = false;
     joystick.classList.add('hidden');
     throwBtn.classList.add('hidden');
@@ -2011,6 +2029,7 @@ import { resolveInputDirection, screenInputToWorldMove, easedVelocity, easedPitc
   });
 
   viewShopBtn.addEventListener('click', () => {
+    stats.track('shop_open');
     overlay.classList.add('hidden');
     shopScreen.classList.remove('hidden');
     shop.render();

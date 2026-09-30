@@ -30,6 +30,7 @@ const SCHEMA_FILES = [
   'supabase_owned_skins_revocation.sql',
   'supabase_scores_rate_limit_by_ip.sql',
   'supabase_skin_descriptions_schema.sql',
+  'supabase_stats_schema.sql',
 ];
 const sqlOf = (f) => readFileSync(resolve(ROOT, f), 'utf8');
 
