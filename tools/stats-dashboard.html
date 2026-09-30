@@ -38,6 +38,8 @@
   .btn:hover, .seg button:hover { color: var(--ink); }
   button:focus-visible { outline: 2px solid var(--neon); outline-offset: 2px; }
 
+  h3.section { margin: 22px 0 10px; font-size: 12px; font-weight: 600; color: var(--ink-2); text-transform: uppercase; letter-spacing: 1.2px; }
+  h3.section:first-of-type { margin-top: 0; }
   .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 16px; }
   .tile { background: var(--panel); border: 1px solid var(--panel-edge); border-radius: 14px; padding: 14px 16px; }
   .tile .label { color: var(--ink-2); font-size: 12px; text-transform: uppercase; letter-spacing: 0.8px; }
@@ -89,12 +91,14 @@
 
   <p id="status" role="status"></p>
 
-  <section class="tiles" aria-label="Totals">
+  <h3 class="section">Players</h3>
+  <section class="tiles" aria-label="Player totals">
     <div class="tile"><div class="label">Visits</div><div class="value" id="t-visits">–</div><div class="note" id="n-visits"></div></div>
     <div class="tile"><div class="label">Games started</div><div class="value" id="t-starts">–</div><div class="note" id="n-starts"></div></div>
     <div class="tile"><div class="label">Visitors who played</div><div class="value" id="t-rate">–</div><div class="note">games started per visit</div></div>
+    <div class="tile"><div class="label">Typical run</div><div class="value" id="t-runlen">–</div><div class="note">median run length</div></div>
+    <div class="tile"><div class="label">Typical score</div><div class="value" id="t-medscore">–</div><div class="note" id="n-best"></div></div>
     <div class="tile"><div class="label">Beat level 15</div><div class="value" id="t-wins">–</div><div class="note" id="n-wins"></div></div>
-    <div class="tile"><div class="label">Shop opens</div><div class="value" id="t-shop">–</div><div class="note">times the shop was opened</div></div>
   </section>
 
   <section class="grid">
@@ -114,9 +118,34 @@
       <div id="c-refs"></div>
     </div>
     <div class="card">
+      <h2>Phone or desktop</h2>
+      <div class="hint">Visits by device: touch screens count as phone/tablet</div>
+      <div id="c-devices"></div>
+    </div>
+    <div class="card">
+      <h2>How long runs last</h2>
+      <div class="hint">Time from START to game over or exit</div>
+      <div id="c-runlen"></div>
+    </div>
+    <div class="card">
       <h2>Where runs end</h2>
       <div class="hint">Level reached when a run ended (game over or exit)</div>
       <div id="c-levels"></div>
+    </div>
+  </section>
+
+  <h3 class="section">Shop and accounts</h3>
+  <section class="tiles" aria-label="Shop and account totals">
+    <div class="tile"><div class="label">Revenue</div><div class="value" id="t-revenue">–</div><div class="note" id="n-revenue"></div></div>
+    <div class="tile"><div class="label">Purchases</div><div class="value" id="t-purchases">–</div><div class="note" id="n-purchases"></div></div>
+    <div class="tile"><div class="label">New accounts</div><div class="value" id="t-accounts">–</div><div class="note" id="n-accounts"></div></div>
+    <div class="tile"><div class="label">Leaderboard entries</div><div class="value" id="t-lb">–</div><div class="note">scores submitted or improved</div></div>
+  </section>
+  <section class="grid">
+    <div class="card">
+      <h2>Shop funnel</h2>
+      <div class="hint">How far shoppers get, from opening the shop to paying</div>
+      <div id="c-funnel"></div>
     </div>
   </section>
 
@@ -131,6 +160,8 @@
   const SVGNS = 'http://www.w3.org/2000/svg';
   const $ = (id) => document.getElementById(id);
   const fmt = (n) => Number(n || 0).toLocaleString();
+  const money = (cents) => '$' + (Number(cents || 0) / 100).toFixed(2);
+  const duration = (sec) => { sec = Math.round(sec); return sec < 60 ? `${sec}s` : `${Math.floor(sec / 60)}m ${String(sec % 60).padStart(2, '0')}s`; };
   const tip = $('tip');
 
   let days = 30;
@@ -207,10 +238,10 @@
     host.replaceChildren();
     if (!items.length) { host.innerHTML = `<div class="empty">${emptyText}</div>`; return; }
     const W = widthOf(host), row = 26, L = W < 400 ? 104 : 136, R = 44, H = items.length * row + 4;
-    const max = Math.max(...items.map(valueOf));
+    const max = Math.max(1, ...items.map(valueOf));
     const svg = el('svg', { viewBox: `0 0 ${W} ${H}`, role: 'img', 'aria-label': noun }, host);
     items.forEach((it, i) => {
-      const y = i * row + 4, w = Math.max(2, (W - L - R) * valueOf(it) / max), label = labelOf(it);
+      const y = i * row + 4, w = valueOf(it) > 0 ? Math.max(2, (W - L - R) * valueOf(it) / max) : 0, label = labelOf(it);
       el('text', { x: L - 8, y: y + 13, 'text-anchor': 'end' }, svg).textContent = label.length > (L / 7) ? label.slice(0, Math.floor(L / 7) - 1) + '…' : label;
       const hit = el('rect', { x: 0, y: y - 2, width: W, height: row, class: 'hit' }, svg);
       // Horizontal bar: rounded at the far (value) end, flat against the axis.
@@ -239,11 +270,33 @@
     $('t-rate').textContent = t.visit ? Math.round(100 * (t.game_start || 0) / t.visit) + '%' : '–';
     $('t-wins').textContent = fmt(t.victory);
     $('n-wins').textContent = `${fmt(all.victory)} all time`;
-    $('t-shop').textContent = fmt(t.shop_open);
+    const runs = s.runs || {};
+    $('t-runlen').textContent = runs.median_seconds == null ? '–' : duration(runs.median_seconds);
+    $('t-medscore').textContent = runs.median_score == null ? '–' : fmt(Math.round(runs.median_score));
+    $('n-best').textContent = runs.best_score == null ? 'median score per run' : `best ${fmt(runs.best_score)}`;
+
+    const p = s.purchases || {}, acc = s.accounts || {};
+    $('t-revenue').textContent = money(p.revenue_cents);
+    $('n-revenue').textContent = `${money(p.all_time_revenue_cents)} all time, before Stripe fees`;
+    $('t-purchases').textContent = fmt(p.count);
+    $('n-purchases').textContent = `${fmt(p.all_time_count)} all time, refunds excluded`;
+    $('t-accounts').textContent = fmt(acc.new);
+    $('n-accounts').textContent = `${fmt(acc.total)} total`;
+    $('t-lb').textContent = fmt(s.leaderboard_entries);
 
     dailyChart($('c-visits'), s.daily || [], 'visit', 'Visits');
     dailyChart($('c-starts'), s.daily || [], 'game_start', 'Games');
     hbarChart($('c-refs'), s.refs || [], (r) => r.ref, (r) => r.visits, 'Visits', 'No visits in this range yet.');
+    const deviceNames = { mobile: 'Phone / tablet', desktop: 'Desktop', unknown: 'Unknown' };
+    hbarChart($('c-devices'), s.devices || [], (d) => deviceNames[d.device] || d.device, (d) => d.visits, 'Visits', 'No visits in this range yet.');
+    const lengths = (s.run_lengths || []).some((b) => b.runs) ? s.run_lengths : [];
+    hbarChart($('c-runlen'), lengths, (b) => b.bucket, (b) => b.runs, 'Runs', 'No finished runs in this range yet.');
+    const funnel = [
+      { label: 'Opened shop', n: t.shop_open || 0 },
+      { label: 'Clicked Buy', n: t.checkout_start || 0 },
+      { label: 'Paid', n: p.count || 0 },
+    ];
+    hbarChart($('c-funnel'), funnel.some((f) => f.n) ? funnel : [], (f) => f.label, (f) => f.n, 'Times', 'Nobody has opened the shop in this range yet.');
     const levels = (s.levels || []).map((l) => ({ ...l, label: l.level >= 15 ? `Level ${l.level} (won)` : `Level ${l.level}` }));
     hbarChart($('c-levels'), levels, (l) => l.label, (l) => l.runs, 'Runs', 'No finished runs in this range yet.');
 

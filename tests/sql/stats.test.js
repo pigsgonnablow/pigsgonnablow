@@ -4,11 +4,30 @@ import { readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-// supabase_stats_schema.sql stands alone (no dependency on the other schema files), so this
-// suite applies just that file on top of what a hosted Supabase project grants by default.
+// get_stats() also reads owned_skins, scores and auth.users, so this suite applies every schema
+// file in order (same list and order as lockdown.test.js) on top of a stand-in for what a hosted
+// Supabase project provides.
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
-const STATS_SQL = readFileSync(resolve(ROOT, 'supabase_stats_schema.sql'), 'utf8');
+const SCHEMA_FILES = [
+  'supabase_scores_schema.sql',
+  'supabase_accounts_schema.sql',
+  'supabase_avatars_schema.sql',
+  'supabase_skins_schema.sql',
+  'supabase_skin_color_filter_schema.sql',
+  'supabase_leaderboard_color_filter_schema.sql',
+  'supabase_purchase_audit_schema.sql',
+  'supabase_remove_griffin_schema.sql',
+  'supabase_lockdown_direct_writes.sql',
+  'supabase_owned_skins_revocation.sql',
+  'supabase_scores_rate_limit_by_ip.sql',
+  'supabase_skin_descriptions_schema.sql',
+  'supabase_stats_schema.sql',
+];
+const sqlOf = (f) => readFileSync(resolve(ROOT, f), 'utf8');
+const STATS_SQL = sqlOf('supabase_stats_schema.sql');
 const INSUFFICIENT_PRIVILEGE = '42501';
+const U1 = '11111111-1111-1111-1111-111111111111';
+const U2 = '22222222-2222-2222-2222-222222222222';
 
 let db;
 
@@ -19,7 +38,8 @@ async function asAnon(fn) {
 async function attempt(sql, params = []) {
   try { return { rows: (await db.query(sql, params)).rows }; } catch (e) { return { code: e.code, message: e.message }; }
 }
-const log = (kind, level, ref) => asAnon(() => attempt('select public.log_event($1, $2, $3)', [kind, level, ref]));
+const log = (kind, level, ref, device = 'desktop', score = null, seconds = null) =>
+  asAnon(() => attempt('select public.log_event($1, $2, $3, $4, $5, $6)', [kind, level, ref, device, score, seconds]));
 const stats = async (days = 30) => (await asAnon(() => db.query('select public.get_stats($1) as s', [days]))).rows[0].s;
 const count = async () => (await db.query('select count(*)::int as n from public.events')).rows[0].n;
 
@@ -28,12 +48,21 @@ beforeAll(async () => {
   await db.exec(`
     create role anon nologin;
     create role authenticated nologin;
+    create schema auth;
+    create table auth.users (id uuid primary key, email text, created_at timestamptz not null default now());
+    create function auth.uid() returns uuid language sql stable as $$
+      select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid
+    $$;
+    grant usage on schema auth to anon, authenticated;
     grant usage on schema public to anon, authenticated;
     alter default privileges in schema public grant all on tables to anon, authenticated;
     alter default privileges in schema public grant all on sequences to anon, authenticated;
     alter default privileges in schema public grant all on functions to anon, authenticated;
+    insert into auth.users (id, email, created_at) values
+      ('${U1}', 'u1@example.test', now()),
+      ('${U2}', 'u2@example.test', now() - interval '400 days');
   `);
-  await db.exec(STATS_SQL);
+  for (const f of SCHEMA_FILES) await db.exec(sqlOf(f));
 }, 120_000);
 afterAll(async () => { await db?.close(); });
 
@@ -90,7 +119,7 @@ describe('supabase_stats_schema.sql', () => {
     expect((await stats(10_000)).days).toBe(365);
   });
 
-  it('PUBLIC holds no EXECUTE; anon and authenticated do', async () => {
+  it('PUBLIC holds no EXECUTE on the stats RPCs; anon and authenticated do', async () => {
     const { rows } = await db.query(`
       select p.proname, has_function_privilege('anon', p.oid, 'EXECUTE') as anon,
              has_function_privilege('authenticated', p.oid, 'EXECUTE') as authed,
@@ -100,6 +129,50 @@ describe('supabase_stats_schema.sql', () => {
       { proname: 'get_stats', anon: true, authed: true, public_exec: false },
       { proname: 'log_event', anon: true, authed: true, public_exec: false },
     ]);
+  });
+
+  it('log_event stores device, score and seconds, and nulls out anything out of range', async () => {
+    await log('game_over', 4, 'direct', 'mobile', 1234, 95);
+    await log('game_over', 2, 'direct', 'toaster', -5, 999999);
+    const { rows } = await db.query('select device, score, seconds from public.events order by id desc limit 2');
+    expect(rows).toEqual([
+      { device: 'unknown', score: null, seconds: null },
+      { device: 'mobile', score: 1234, seconds: 95 },
+    ]);
+  });
+
+  it('the narrower draft log_event(text, integer, text) overload does not exist', async () => {
+    const { rows } = await db.query("select count(*)::int as n from pg_proc where proname = 'log_event'");
+    expect(rows[0].n).toBe(1);
+  });
+
+  it('get_stats reports devices, run lengths and run medians', async () => {
+    await log('visit', 0, 'direct', 'mobile');
+    await log('quit', 1, 'direct', 'mobile', 50, 20);
+    await log('game_over', 6, 'direct', 'desktop', 900, 200);
+    const s = await stats(7);
+    const devices = Object.fromEntries(s.devices.map((d) => [d.device, d.visits]));
+    expect(devices.mobile).toBeGreaterThanOrEqual(1);
+    expect(s.run_lengths.map((b) => b.bucket)).toEqual(['Under 30s', '30s to 1 min', '1 to 2 min', '2 to 5 min', '5 min or more']);
+    expect(s.run_lengths[0].runs).toBeGreaterThanOrEqual(1); // the 20s quit
+    expect(s.run_lengths[3].runs).toBeGreaterThanOrEqual(1); // the 200s game over
+    expect(s.runs.count).toBeGreaterThanOrEqual(3);
+    expect(s.runs.best_score).toBe(1234);
+    expect(typeof s.runs.median_seconds).toBe('number');
+  });
+
+  it('get_stats counts real, unrefunded purchases, new accounts and leaderboard entries', async () => {
+    await db.exec(`
+      insert into public.owned_skins (user_id, skin_id, stripe_checkout_session_id, amount_paid_cents, currency)
+        values ('${U1}', 'dragon-red', 'cs_1', 199, 'usd');
+      insert into public.owned_skins (user_id, skin_id, stripe_checkout_session_id, amount_paid_cents, currency, revoked_at)
+        values ('${U2}', 'dragon-red', 'cs_2', 199, 'usd', now());
+      insert into public.scores (name, score) values ('Tester', 10);
+    `);
+    const s = await stats(30);
+    expect(s.purchases).toEqual({ count: 1, revenue_cents: 199, all_time_count: 1, all_time_revenue_cents: 199 });
+    expect(s.accounts).toEqual({ new: 1, total: 2 });
+    expect(s.leaderboard_entries).toBeGreaterThanOrEqual(1);
   });
 
   it('a flood is capped at 300 rows per minute, without erroring the caller', async () => {

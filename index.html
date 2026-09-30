@@ -473,6 +473,7 @@ import { resolveInputDirection, screenInputToWorldMove, easedVelocity, easedPitc
     href: location.href,
     referrer: document.referrer,
     hostname: location.hostname,
+    coarsePointer: !!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches),
     fetchImpl: window.fetch ? window.fetch.bind(window) : null
   });
   stats.track('visit');
@@ -492,7 +493,8 @@ import { resolveInputDirection, screenInputToWorldMove, easedVelocity, easedPitc
   });
   const shop = createShop({
     auth,
-    elements: { listEl: shopList, statusEl: shopSubStatus }
+    elements: { listEl: shopList, statusEl: shopSubStatus },
+    onCheckoutStart: () => stats.track('checkout_start')
   });
   const mySkins = createMySkins({
     auth,
@@ -1176,7 +1178,7 @@ import { resolveInputDirection, screenInputToWorldMove, easedVelocity, easedPitc
     finalScoreEl.textContent = 'Score: ' + score + '  •  Time: ' + formatTime(elapsedMs);
     gameOverEl.classList.remove('hidden');
 
-    stats.track('game_over', level);
+    stats.track('game_over', { level, score, seconds: elapsedMs / 1000 });
     leaderboard.onGameOver(score);
   }
 
@@ -1193,7 +1195,7 @@ import { resolveInputDirection, screenInputToWorldMove, easedVelocity, easedPitc
     sfxBonus();
     victoryScoreText.textContent = 'Score: ' + score + '  •  Time: ' + formatTime(elapsedMs);
     victoryScreen.classList.remove('hidden');
-    stats.track('victory', level);
+    stats.track('victory', { level, score, seconds: elapsedMs / 1000 });
   }
   function resumeAfterVictory(){
     victoryScreen.classList.add('hidden');
@@ -2008,7 +2010,7 @@ import { resolveInputDirection, screenInputToWorldMove, easedVelocity, easedPitc
   });
 
   exitBtn.addEventListener('click', () => {
-    if (running) stats.track('quit', level);
+    if (running) stats.track('quit', { level, score, seconds: elapsedMs / 1000 });
     running = false;
     joystick.classList.add('hidden');
     throwBtn.classList.add('hidden');

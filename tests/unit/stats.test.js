@@ -30,7 +30,7 @@ describe('isTrackedHost', () => {
 describe('createStats', () => {
   it('posts to the log_event RPC with the publishable key and a clamped level', () => {
     const fetchImpl = vi.fn(() => Promise.resolve({ ok: true }));
-    createStats({ ...LIVE, referrer: 'https://bsky.app/profile/x', fetchImpl }).track('game_over', 7.9);
+    createStats({ ...LIVE, referrer: 'https://bsky.app/profile/x', coarsePointer: true, fetchImpl }).track('game_over', { level: 7.9, score: 420, seconds: 61.7 });
     expect(fetchImpl).toHaveBeenCalledTimes(1);
     const [url, init] = fetchImpl.mock.calls[0];
     expect(url).toBe('https://x.supabase.co/rest/v1/rpc/log_event');
@@ -38,7 +38,17 @@ describe('createStats', () => {
     expect(init.keepalive).toBe(true);
     expect(init.headers.apikey).toBe('k');
     expect(init.headers.Authorization).toBeUndefined();
-    expect(JSON.parse(init.body)).toEqual({ p_kind: 'game_over', p_level: 7, p_ref: 'bsky.app' });
+    expect(JSON.parse(init.body)).toEqual({
+      p_kind: 'game_over', p_level: 7, p_ref: 'bsky.app', p_device: 'mobile', p_score: 420, p_seconds: 61,
+    });
+  });
+
+  it('events without run details send level 0 and nulls; a desktop pointer reports desktop', () => {
+    const fetchImpl = vi.fn(() => Promise.resolve());
+    createStats({ ...LIVE, coarsePointer: false, fetchImpl }).track('visit');
+    expect(JSON.parse(fetchImpl.mock.calls[0][1].body)).toEqual({
+      p_kind: 'visit', p_level: 0, p_ref: 'direct', p_device: 'desktop', p_score: null, p_seconds: null,
+    });
   });
 
   it('sends nothing off the live domain, or for an unknown kind', () => {
@@ -57,6 +67,6 @@ describe('createStats', () => {
   });
 
   it('its kinds match the database check constraint', () => {
-    expect(EVENT_KINDS).toEqual(['visit', 'game_start', 'game_over', 'victory', 'quit', 'shop_open']);
+    expect(EVENT_KINDS).toEqual(['visit', 'game_start', 'game_over', 'victory', 'quit', 'shop_open', 'checkout_start']);
   });
 });
