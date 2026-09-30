@@ -22,6 +22,7 @@ const SCHEMA_FILES = [
   'supabase_scores_rate_limit_by_ip.sql',
   'supabase_skin_descriptions_schema.sql',
   'supabase_stats_schema.sql',
+  'supabase_stats_private.sql',
 ];
 const sqlOf = (f) => readFileSync(resolve(ROOT, f), 'utf8');
 const STATS_SQL = sqlOf('supabase_stats_schema.sql');
@@ -40,7 +41,11 @@ async function attempt(sql, params = []) {
 }
 const log = (kind, level, ref, device = 'desktop', score = null, seconds = null) =>
   asAnon(() => attempt('select public.log_event($1, $2, $3, $4, $5, $6)', [kind, level, ref, device, score, seconds]));
-const stats = async (days = 30) => (await asAnon(() => db.query('select public.get_stats($1) as s', [days]))).rows[0].s;
+// Aggregates are read as the owner here; how a client gets at them (read_stats + password) has
+// its own tests below.
+const stats = async (days = 30) => (await db.query('select public.get_stats($1) as s', [days])).rows[0].s;
+const readStats = async (password, days = 30) =>
+  (await asAnon(() => db.query('select public.read_stats($1, $2) as s', [password, days]))).rows[0].s;
 const count = async () => (await db.query('select count(*)::int as n from public.events')).rows[0].n;
 
 beforeAll(async () => {
@@ -119,16 +124,63 @@ describe('supabase_stats_schema.sql', () => {
     expect((await stats(10_000)).days).toBe(365);
   });
 
-  it('PUBLIC holds no EXECUTE on the stats RPCs; anon and authenticated do', async () => {
+  it('only log_event and read_stats are callable by clients; get_stats and set_stats_password are not', async () => {
     const { rows } = await db.query(`
       select p.proname, has_function_privilege('anon', p.oid, 'EXECUTE') as anon,
              has_function_privilege('authenticated', p.oid, 'EXECUTE') as authed,
              exists (select 1 from aclexplode(p.proacl) a where a.grantee = 0) as public_exec
-      from pg_proc p where p.proname in ('log_event', 'get_stats') order by 1`);
+      from pg_proc p where p.proname in ('log_event', 'get_stats', 'read_stats', 'set_stats_password') order by 1`);
     expect(rows).toEqual([
-      { proname: 'get_stats', anon: true, authed: true, public_exec: false },
+      { proname: 'get_stats', anon: false, authed: false, public_exec: false },
       { proname: 'log_event', anon: true, authed: true, public_exec: false },
+      { proname: 'read_stats', anon: true, authed: true, public_exec: false },
+      { proname: 'set_stats_password', anon: false, authed: false, public_exec: false },
     ]);
+  });
+
+  it('REGRESSION: anon calling get_stats directly is denied (it used to be public)', async () => {
+    const r = await asAnon(() => attempt('select public.get_stats(30)'));
+    expect(r.code).toBe(INSUFFICIENT_PRIVILEGE);
+  });
+
+  it('anon cannot touch the private schema at all', async () => {
+    for (const sql of ["select private.set_stats_password('a-long-enough-password')", 'select * from private.stats_access']) {
+      const r = await asAnon(() => attempt(sql));
+      expect(r.code, sql).toBe(INSUFFICIENT_PRIVILEGE);
+    }
+  });
+
+  describe('read_stats', () => {
+    it('answers no_password_set until the owner sets one', async () => {
+      expect(await readStats('anything at all')).toEqual({ error: 'no_password_set' });
+    });
+
+    it('set_stats_password refuses a short password', async () => {
+      await expect(db.query("select private.set_stats_password('short')")).rejects.toThrow(/12 characters/);
+    });
+
+    it('stores only a hash, and returns the aggregates for the right password', async () => {
+      await db.query("select private.set_stats_password('correct horse battery')");
+      const { rows } = await db.query('select key_hash from private.stats_access');
+      expect(rows[0].key_hash).toMatch(/^[0-9a-f]{64}$/);
+      expect(rows[0].key_hash).not.toContain('horse');
+      const s = await readStats('correct horse battery', 7);
+      expect(s.days).toBe(7);
+      expect(s.daily).toHaveLength(7);
+    });
+
+    it('a wrong or missing password gets an error, not data', async () => {
+      expect(await readStats('wrong guess')).toEqual({ error: 'wrong_password' });
+      expect(await readStats(null)).toEqual({ error: 'wrong_password' });
+    });
+
+    it('10 wrong guesses in 10 minutes lock it, even for the right password; resetting the password clears it', async () => {
+      await db.exec('delete from private.stats_access_failures');
+      for (let i = 0; i < 10; i++) expect(await readStats(`guess ${i}`)).toEqual({ error: 'wrong_password' });
+      expect(await readStats('correct horse battery')).toEqual({ error: 'locked' });
+      await db.query("select private.set_stats_password('correct horse battery')");
+      expect((await readStats('correct horse battery')).error).toBeUndefined();
+    });
   });
 
   it('log_event stores device, score and seconds, and nulls out anything out of range', async () => {

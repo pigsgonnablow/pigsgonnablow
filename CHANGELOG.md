@@ -2,6 +2,24 @@
 
 Running log of notable changes, kept during dev sessions for reference.
 
+## 2026-09-30 (later) -- the stats dashboard was readable by anyone; now it needs a password
+
+The first stats release let anon call `get_stats()`, so anyone who opened
+/tools/stats-dashboard.html (or dug the publishable key out of index.html) could see every
+number, revenue included. `supabase_stats_private.sql` (+ migration
+`20260930000001_stats_private.sql`) closes that:
+
+- `get_stats()` is revoked from anon/authenticated (and `supabase_stats_schema.sql` no longer
+  grants it, so re-running that file can't reopen it).
+- New `read_stats(p_password, p_days)` returns `get_stats()`'s JSON only when the password's
+  SHA-256 matches the one stored in `private.stats_access`; otherwise `{"error": ...}`. Ten wrong
+  guesses in ten minutes lock it for everyone until they age out.
+- The password is set from the SQL Editor with `select private.set_stats_password('...')`
+  (12+ characters; not callable by any client). The `private` schema isn't exposed by PostgREST
+  and has no grants to the API roles.
+- The dashboard shows only an unlock form until the password checks out, and can remember it
+  on that device.
+
 ## 2026-09-30 -- anonymous play stats and a local stats dashboard
 
 There was no way to tell whether a Reddit or Bluesky post actually brought anyone in: no

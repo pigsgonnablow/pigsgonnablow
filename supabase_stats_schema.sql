@@ -8,9 +8,8 @@
 -- privacy.html can keep promising "no third-party analytics" -- this is first-party, on the same
 -- Supabase project the leaderboard already uses.
 --
--- get_stats() only ever returns aggregate counts, and anon can call it, so those counts are
--- effectively public to anyone who digs the publishable key out of index.html (which is public
--- by design). That's a deliberate trade for a dashboard that needs no login or secret.
+-- get_stats() only ever returns aggregate counts. This file originally let anon call it; that
+-- was closed by supabase_stats_private.sql, which puts it behind a password (read_stats).
 --
 -- Run last, after the other schema files: get_stats() also reads public.owned_skins (with the
 -- amount_paid_cents/revoked_at columns added by later files), public.scores and auth.users.
@@ -199,4 +198,7 @@ $$;
 revoke all on function public.log_event(text, integer, text, text, integer, integer) from public;
 revoke all on function public.get_stats(integer) from public;
 grant execute on function public.log_event(text, integer, text, text, integer, integer) to anon, authenticated;
-grant execute on function public.get_stats(integer) to anon, authenticated;
+-- get_stats is deliberately NOT granted to anon/authenticated: clients read stats only through
+-- the password-checked read_stats() in supabase_stats_private.sql. (This file originally
+-- granted it here; re-running an old copy would reopen that, so the revoke is repeated there.)
+revoke all on function public.get_stats(integer) from anon, authenticated;

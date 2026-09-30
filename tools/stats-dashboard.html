@@ -4,8 +4,9 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <!-- Standalone stats dashboard: open this file straight from disk (double-click) or at
-     /tools/stats-dashboard.html on the live site. It only reads aggregate counts through the
-     public get_stats() RPC (see supabase_stats_schema.sql), so it needs no login or secret. -->
+     /tools/stats-dashboard.html on the live site. The page itself holds nothing private: every
+     number comes from the password-checked read_stats() RPC (see supabase_stats_private.sql), so
+     without the password it shows only the unlock form. -->
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src https://ljnshaoruygijgtcokwv.supabase.co; base-uri 'none'; form-action 'none';">
 <meta name="robots" content="noindex">
 <title>Pigs Gonna Blow Stats</title>
@@ -69,6 +70,14 @@
   #status.error { border-color: var(--bad); color: #ffd3dd; }
   #status:empty { display: none; }
   code { color: var(--neon); }
+  #lock { max-width: 420px; margin: 40px auto; background: var(--panel); border: 1px solid var(--panel-edge); border-radius: 14px; padding: 22px; }
+  #lock h2 { margin: 0 0 6px; font-size: 17px; }
+  #lock p { color: var(--ink-3); font-size: 13px; margin: 0 0 14px; }
+  #lock input[type=password] { width: 100%; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--panel-edge); background: #050a18; color: var(--ink); font: inherit; }
+  #lock input[type=password]:focus { outline: 2px solid var(--neon); outline-offset: 1px; }
+  #lock label { display: flex; gap: 8px; align-items: center; color: var(--ink-2); font-size: 13px; margin: 12px 0 16px; }
+  #lock .go { background: var(--neon); color: #03121a; border: 0; border-radius: 999px; padding: 9px 20px; font: inherit; font-weight: 700; cursor: pointer; box-shadow: var(--glow); }
+  [hidden] { display: none !important; }
   footer { color: var(--ink-3); font-size: 12px; margin-top: 18px; }
 </style>
 </head>
@@ -80,16 +89,27 @@
       <div class="sub" id="asof">Loading…</div>
     </div>
     <div class="controls">
-      <div class="seg" role="group" aria-label="Time range">
+      <div class="seg" id="range" role="group" aria-label="Time range" hidden>
         <button data-days="7" aria-pressed="false">7 days</button>
         <button data-days="30" aria-pressed="true">30 days</button>
         <button data-days="90" aria-pressed="false">90 days</button>
       </div>
-      <button class="btn" id="refresh">Refresh</button>
+      <button class="btn" id="refresh" hidden>Refresh</button>
+      <button class="btn" id="lockBtn" hidden>Lock</button>
     </div>
   </header>
 
   <p id="status" role="status"></p>
+
+  <form id="lock" hidden>
+    <h2>🔒 Enter the stats password</h2>
+    <p>These numbers are private. The password is the one set with <code>private.set_stats_password</code> in Supabase.</p>
+    <input type="password" id="pw" autocomplete="current-password" aria-label="Stats password" required>
+    <label><input type="checkbox" id="remember" checked> Remember on this device</label>
+    <button class="go" type="submit">Unlock</button>
+  </form>
+
+  <div id="content" hidden>
 
   <h3 class="section">Players</h3>
   <section class="tiles" aria-label="Player totals">
@@ -148,6 +168,8 @@
       <div id="c-funnel"></div>
     </div>
   </section>
+
+  </div>
 
   <footer>Counts are anonymous: no names, emails, IPs or cookies are recorded. Only visits to pigsgonnablow.com are counted, not local copies.</footer>
 </div>
@@ -308,27 +330,73 @@
     $('status').className = isError ? 'error' : '';
   }
 
+  // Where the password lives: localStorage if "remember" was ticked (this device only), otherwise
+  // just this tab's memory. Storage can be unavailable (private mode), so every access is guarded.
+  const PW_KEY = 'pgb-stats-password';
+  let password = '';
+  try { password = localStorage.getItem(PW_KEY) || ''; } catch (e) {}
+  function forgetPassword() {
+    password = '';
+    try { localStorage.removeItem(PW_KEY); } catch (e) {}
+  }
+  function showLocked(message, isError) {
+    $('content').hidden = true;
+    $('refresh').hidden = true;
+    $('lockBtn').hidden = true;
+    $('range').hidden = true;
+    $('lock').hidden = false;
+    $('asof').textContent = 'Locked';
+    setStatus(message || '', isError);
+    $('pw').focus();
+  }
+
+  const ERRORS = {
+    wrong_password: 'That password didn\'t match. Try again.',
+    locked: 'Too many wrong tries. The stats are locked for up to 10 minutes; try again after that.',
+    no_password_set: 'No stats password is set yet. In the Supabase dashboard, open SQL Editor and run: select private.set_stats_password(\'your long passphrase\');'
+  };
+
   async function load() {
+    if (!password) { showLocked(); return; }
     setStatus('');
     $('asof').textContent = 'Loading…';
     try {
-      const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/get_stats`, {
+      const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/read_stats`, {
         method: 'POST',
         headers: { apikey: SUPABASE_ANON_KEY, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ p_days: days })
+        body: JSON.stringify({ p_password: password, p_days: days })
       });
       if (res.status === 404) {
-        setStatus('Stats aren\'t switched on in the database yet. From the repo, run "npm run db:push" once, then refresh.', true);
-        $('asof').textContent = '';
+        showLocked('The password protection isn\'t switched on in the database yet. From the repo, run "npm run db:push" once, then reload.', true);
         return;
       }
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      render(await res.json());
+      const data = await res.json();
+      if (data && data.error) {
+        if (data.error !== 'locked') forgetPassword();
+        showLocked(ERRORS[data.error] || `Couldn't unlock (${data.error}).`, true);
+        return;
+      }
+      $('lock').hidden = true;
+      $('content').hidden = false;
+      $('refresh').hidden = false;
+      $('lockBtn').hidden = false;
+      $('range').hidden = false;
+      render(data);
     } catch (e) {
       setStatus(`Couldn't load stats (${e.message}). Check your connection and press Refresh.`, true);
       $('asof').textContent = '';
     }
   }
+
+  $('lock').addEventListener('submit', (e) => {
+    e.preventDefault();
+    password = $('pw').value;
+    $('pw').value = '';
+    if ($('remember').checked) { try { localStorage.setItem(PW_KEY, password); } catch (err) {} }
+    load();
+  });
+  $('lockBtn').addEventListener('click', () => { forgetPassword(); showLocked(); });
 
   document.querySelectorAll('.seg button').forEach((b) => {
     b.setAttribute('aria-pressed', String(Number(b.dataset.days) === days));
@@ -340,7 +408,7 @@
     });
   });
   $('refresh').addEventListener('click', load);
-  setInterval(() => { if (!document.hidden) load(); }, 60_000);
+  setInterval(() => { if (!document.hidden && password) load(); }, 60_000);
   load();
 })();
 </script>
