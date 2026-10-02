@@ -435,6 +435,22 @@ describe('throwing a burger', () => {
   it('coins beyond the cost are fine', () => {
     expect(R.canThrow({ ...ready, coins: 99 })).toBe(true);
   });
+  it('throwBlocker names what is in the way, in the order a player would fix it', () => {
+    const base = { carrying: true, pigState: 'idle', coins: R.BURGER_THROW_COST };
+    expect(R.throwBlocker(base)).toBe(null);
+    expect(R.throwBlocker({ ...base, carrying: false, coins: 0, pigState: 'jumping' })).toBe('GRAB A 🍔');
+    expect(R.throwBlocker({ ...base, coins: R.BURGER_THROW_COST - 1, pigState: 'jumping' })).toBe('NEED 4 🪙');
+    for (const pigState of ['jumping', 'exploding', 'cooldown']) {
+      expect(R.throwBlocker({ ...base, pigState })).toBe('WAIT FOR PIG');
+    }
+  });
+  it('throwBlocker agrees with canThrow for a running game', () => {
+    for (const carrying of [true, false]) for (const coins of [0, 3, 4, 9])
+      for (const pigState of ['idle', 'jumping', 'exploding', 'cooldown']) {
+        const st = { running: true, carrying, pigState, coins };
+        expect(R.throwBlocker(st) === null).toBe(R.canThrow(st));
+      }
+  });
   it('pinned: a throw costs 4 coins', () => {
     expect(R.BURGER_THROW_COST).toBe(4);
   });
