@@ -16,7 +16,7 @@ beforeEach(() => {
   vi.spyOn(console, 'error').mockImplementation(() => {});
 });
 
-function build({ owned = [], equipped = 'pig', session = SESSION, skins = SKINS, rpc } = {}) {
+function build({ owned = [], equipped = 'pig', session = SESSION, skins = SKINS, rpc, hasProfile = true } = {}) {
   const fake = createFakeSupabase({
     tables: {
       skins: { select: { data: skins, error: null } },
@@ -24,12 +24,13 @@ function build({ owned = [], equipped = 'pig', session = SESSION, skins = SKINS,
     },
     rpc,
   });
+  const state = { equipped };
   const auth = {
     getClient: () => fake.client,
-    getState: () => ({ session, profile: session ? { equipped_skin_id: equipped } : null }),
+    getState: () => ({ session, profile: session && hasProfile ? { equipped_skin_id: state.equipped } : null }),
     refreshProfile: vi.fn(async () => {}),
   };
-  return { ...fake, auth, ui: createMySkins({ auth, elements }) };
+  return { ...fake, auth, state, ui: createMySkins({ auth, elements }) };
 }
 
 const buttons = () => [...elements.listEl.querySelectorAll('button')];
@@ -58,6 +59,13 @@ describe('render', () => {
     await ui.render();
     expect(elements.statusEl.textContent).toContain('Sign in');
     expect(log.queries).toEqual([]);
+  });
+
+  it('REGRESSION: signed in but no display name yet -- says to pick one instead of offering an EQUIP that silently does nothing', async () => {
+    const { ui } = build({ owned: ['dragon'], hasProfile: false });
+    await ui.render();
+    expect(buttons()).toHaveLength(0);
+    expect(elements.statusEl.textContent).toContain('display name');
   });
 
   it('shows "unavailable" when supabase never loaded', async () => {
@@ -90,6 +98,23 @@ describe('equip', () => {
     expect(log.rpcs).toEqual([{ name: 'equip_skin', args: { p_skin_id: 'dragon' } }]);
     expect(order).toEqual(['rpc', 'refresh']);
     expect(log.queries.filter((q) => q.table === 'skins').length).toBe(skinQueriesBefore + 1); // re-rendered
+  });
+
+  it('clears the status once the refreshed profile shows the new skin equipped', async () => {
+    const { ui, auth, state } = build({ owned: ['dragon'] });
+    auth.refreshProfile.mockImplementation(async () => { state.equipped = 'dragon'; });
+    await ui.render();
+    buttons()[1].click();
+    await flush();
+    expect(elements.statusEl.textContent).toBe('');
+  });
+
+  it('REGRESSION: an RPC that "succeeds" without changing the equipped skin is reported, not shown as success', async () => {
+    const { ui } = build({ owned: ['dragon'] }); // refreshProfile leaves it on 'pig'
+    await ui.render();
+    buttons()[1].click();
+    await flush();
+    expect(elements.statusEl.textContent).toContain("Couldn't equip");
   });
 
   it('REGRESSION: never writes profiles directly (equipping is server-side only)', async () => {
