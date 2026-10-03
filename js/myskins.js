@@ -27,6 +27,15 @@ export function createMySkins({ auth, elements }){
       return;
     }
 
+    // REGRESSION: equip_skin() only *updates* the caller's profiles row, and that row is created
+    // when they pick a display name. Signed in without one (possible right after buying a skin),
+    // EQUIP was a silent no-op: no error, the skin just never went on. Say what's missing.
+    if (!profile){
+      listEl.innerHTML = '';
+      statusEl.textContent = 'Pick a display name on the title screen first, then come back here to equip your skins.';
+      return;
+    }
+
     listEl.innerHTML = '<p style="color:#9be8ac; font-size:13px;">Loading…</p>';
     statusEl.textContent = '';
 
@@ -89,10 +98,13 @@ export function createMySkins({ auth, elements }){
       statusEl.textContent = "Couldn't equip that skin — try again.";
       return;
     }
-    statusEl.textContent = '';
     await auth.refreshProfile(); // equip_skin wrote profiles directly in the DB -- auth's
                                   // cached profile has no other way to learn that
-    render();
+    // Belt-and-braces for the no-profile case above: a "successful" RPC that didn't change the
+    // equipped skin should never look like it worked.
+    const after = auth.getState().profile;
+    await render(); // clears the status line, so set it afterwards
+    if (!after || after.equipped_skin_id !== skinId) statusEl.textContent = "Couldn't equip that skin — try again.";
   }
 
   return { render };

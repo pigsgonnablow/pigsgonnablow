@@ -2,6 +2,21 @@
 
 Running log of notable changes, kept during dev sessions for reference.
 
+## 2026-10-03 -- a buyer couldn't equip their skin
+
+A player bought a skin and couldn't wear it. `equip_skin()` only *updates* the caller's
+`profiles` row, and that row only exists once they've picked a display name. Buying needs just a
+sign-in, so a buyer who never picked a name got an EQUIP button that silently did nothing.
+
+- My Skins now tells a signed-in player with no display name to pick one first, instead of
+  showing EQUIP buttons that can't work.
+- After an equip, My Skins checks the refreshed profile really has the new skin and reports a
+  failure otherwise, so a no-op can never look like success again.
+- Back from Stripe Checkout, the shop re-renders at 3s/8s/15s so the skin flips to OWNED once the
+  webhook lands (it used to render once, usually too early), and the message says to equip it
+  from MY SKINS (and to pick a display name first if needed).
+- Service worker cache bumped to v41.
+
 ## 2026-10-02 -- clearer controls and warnings, from r/DestroyMyGame feedback
 
 A player on r/DestroyMyGame found phone steering slow, couldn't tell when throwing was allowed

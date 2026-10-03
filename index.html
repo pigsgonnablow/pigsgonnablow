@@ -2142,11 +2142,27 @@ import { resolveInputDirection, screenInputToWorldMove, easedVelocity, easedPitc
     // .catch() here is deliberate, not just tidiness: shop.render() does its own live network
     // fetch, so a transient failure here is routine (same as any other failed fetch elsewhere in
     // the game), not a reason to pop the global fatal-error banner over an otherwise-working page.
-    Promise.resolve(authReady).then(() => shop.render()).then(() => {
-      shopSubStatus.textContent = checkoutResult === 'success'
-        ? 'Purchase complete! It should appear below in a few seconds.'
-        : 'Checkout canceled.';
+    Promise.resolve(authReady).then(() => {
+      if (checkoutResult === 'success') for (const ms of [3000, 8000, 15000]) setTimeout(rerenderAfterCheckout, ms);
+      return shop.render();
+    }).then(() => {
+      shopSubStatus.textContent = postCheckoutMessage();
     }).catch((e) => console.error('[shop] post-checkout render failed:', e));
+  }
+  // The grant usually lands a moment *after* the first render above, so re-render a few times
+  // (while the shop is still open) to flip the skin to OWNED. And say where equipping happens --
+  // the shop itself never equips -- including the display-name step equip_skin() needs (a
+  // buyer without one used to get a silent no-op EQUIP; see js/myskins.js).
+  function postCheckoutMessage(){
+    if (checkoutResult !== 'success') return 'Checkout canceled.';
+    return auth.getState().profile
+      ? 'Purchase complete! Go to MY SKINS to equip it.'
+      : 'Purchase complete! Pick a display name on the title screen, then equip it from MY SKINS.';
+  }
+  function rerenderAfterCheckout(){
+    if (shopScreen.classList.contains('hidden')) return;
+    shop.render().then(() => { shopSubStatus.textContent = postCheckoutMessage(); })
+      .catch((e) => console.error('[shop] post-checkout render failed:', e));
   }
 
   // initial static draw behind overlay
