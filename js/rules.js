@@ -177,6 +177,17 @@ export function pigVisualScale({ feedProgress, feedPunch, jumping, airHeight }) 
 export const canThrow = ({ running, carrying, pigState, coins }) =>
   running && carrying && pigState === 'idle' && coins >= BURGER_THROW_COST;
 
+// Why a throw isn't possible right now, as the short label the THROW button shows while it's
+// greyed out -- or null when nothing is in the way. (The button used to just stay hidden, and
+// players couldn't tell when throwing was allowed.) Checked in the order a player would fix
+// them: get a burger, then the coins, then wait out the pig.
+export function throwBlocker({ carrying, pigState, coins }) {
+  if (!carrying) return 'GRAB A 🍔';
+  if (coins < BURGER_THROW_COST) return `NEED ${BURGER_THROW_COST} 🪙`;
+  if (pigState !== 'idle') return 'WAIT FOR PIG';
+  return null;
+}
+
 // ---------- burgers ----------
 // Where a new ground burger goes: uniformly in the lower part of the field, retried (up to
 // BURGER_SPAWN_TRIES times) if it lands too near the pig, then accepted as-is.

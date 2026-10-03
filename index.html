@@ -116,9 +116,12 @@
   #timer { font-size:22px; }
   #lives { font-size:22px; }
   #warning {
-    position:absolute; top:50%; left:50%; transform:translate(-50%,-50%);
-    font-size:48px; font-weight:900; color:#fff200;
-    text-shadow: 3px 3px 0 #c0392b, -2px -2px 0 #c0392b;
+    /* Near the top of the canvas (JS sets top from the canvas bounds), not dead center: at 48px
+       in the middle it hid the dragon and the landing zone right when they mattered. */
+    position:fixed; top:90px; left:50%; transform:translateX(-50%);
+    font-size:clamp(18px, 3.5vw, 26px); font-weight:900; color:#fff200;
+    text-shadow: 2px 2px 0 #c0392b, -1px -1px 0 #c0392b;
+    width:max-content; max-width:90vw;
     display:none; pointer-events:none; text-align:center;
     letter-spacing:1px;
   }
@@ -210,6 +213,9 @@
   #throwBtn span:first-child { font-size:18px; }
   #throwBtn span:last-child { font-size:10px; opacity:0.85; }
   #throwBtn:active { box-shadow:0 2px 0 #c98e00; transform:translateY(4px); }
+  #throwBtn.blocked { background:rgba(255,255,255,0.18); color:#e6ecf7; box-shadow:none; cursor:default; }
+  #throwBtn.blocked:active { transform:none; }
+  #throwBtn.blocked span:last-child { font-size:12px; opacity:1; }
 </style>
 </head>
 <body>
@@ -237,7 +243,7 @@
     <h1>PIGS GONNA BLOW!</h1>
     <p style="color:#ffd23f; font-weight:900; letter-spacing:0.5px; margin-bottom:8px;">Cheeseburger Dragon vs. The Exploding Pig</p>
     <p>Grab cheeseburgers and stuff them in the pig's mouth. Feed him enough and he'll leap straight at you — watch the landing shadow and <b>DODGE</b> before he comes down and blows! When he explodes, coins scatter everywhere. Grab them for points!</p>
-    <p>🎮 Use the joystick (bottom-left) or arrow keys / WASD to move the dragon.</p>
+    <p>🎮 Touch and drag anywhere (or use arrow keys / WASD) to move the dragon.</p>
     <p>🍔 Spend 4 coins to throw your burger at the pig from range — press E or tap THROW!</p>
     <p>📈 Survive 15 escalating <b>LEVELS</b> to clear the farm. Watch for golden burgers (double
       feed value) from level 3, and wind gusts that shove the dragon around from level 5 —
@@ -338,7 +344,7 @@
 
   <button id="throwBtn" class="hidden">
     <span>🍔 THROW</span>
-    <span>(E)</span>
+    <span id="throwBtnHint">(E)</span>
   </button>
 </div>
 
@@ -390,7 +396,7 @@ import {
   START_GROUND_BURGERS,
   JUMP_DURATION_BASE, SHOCK_RADIUS_BASE, SHOCK_SPEED_BASE, COIN_LIFE_FRAMES, DRAGON_BASE_SIZE, COIN_SCORE,
   COOLDOWN_FRAMES, HIT_INVULN_FRAMES,
-  shockHits, knockedBack, jumpTarget, jumpPosition, canThrow, pigVisualScale as pigScaleFor,
+  shockHits, knockedBack, jumpTarget, jumpPosition, canThrow, throwBlocker, pigVisualScale as pigScaleFor,
   pickBurgerSpot, rollGolden, shouldSpawnBurger, nextSpawnDelay, createWindGusts,
   createCoinBatches, levelFor, isVictory, dragonSizeFor, shockParamsFor, coinLifeFramesFor, jumpDurationFor,
   burgersToFullFor, coinCountFor, feedReward, formatTime, angleToArrow,
@@ -459,6 +465,7 @@ import { resolveInputDirection, screenInputToWorldMove, easedVelocity, easedPitc
   const joystick = document.getElementById('joystick');
   const joystickKnob = document.getElementById('joystickKnob');
   const throwBtn = document.getElementById('throwBtn');
+  const throwBtnHint = document.getElementById('throwBtnHint');
   const exitBtn = document.getElementById('exitBtn');
 
   // ---------- account (Supabase Auth) + leaderboard (Supabase) ----------
@@ -857,48 +864,69 @@ import { resolveInputDirection, screenInputToWorldMove, easedVelocity, easedPitc
     keys[e.key.toLowerCase()] = false;
   });
 
-  // on-screen joystick — works for touch, mouse, and pen via the unified Pointer Events API
+  // on-screen joystick — works for touch, mouse, and pen via the unified Pointer Events API.
+  // It rests in the bottom-left corner, but a touch (or pen) anywhere on the canvas also starts
+  // it: the stick jumps to that spot and drives from there, then goes back to its corner on
+  // release. Reddit feedback was that steering from one corner of a phone felt slow. Mouse
+  // clicks on the canvas don't start it, so desktop play is unchanged.
   let joyActive = false;
   let joyPointerId = null;
+  let joyCenterX = 0, joyCenterY = 0; // where the drag started, in client coordinates
   let joyDX = 0, joyDY = 0; // each axis in [-1,1]; combined magnitude is clamped to <=1
+  const JOY_SIZE = 120;
 
   function updateJoystickVector(e){
-    const rect = joystick.getBoundingClientRect();
-    const cx = rect.left + rect.width/2, cy = rect.top + rect.height/2;
-    const maxDist = rect.width/2;
-    const raw = clampJoystickVector(e.clientX - cx, e.clientY - cy, maxDist);
+    const maxDist = JOY_SIZE/2;
+    const raw = clampJoystickVector(e.clientX - joyCenterX, e.clientY - joyCenterY, maxDist);
     joyDX = raw.dx; joyDY = raw.dy;
     joystickKnob.style.transform = `translate(${raw.dx*maxDist}px, ${raw.dy*maxDist}px)`;
   }
-  joystick.addEventListener('pointerdown', e => {
+  function startJoystick(e, target, centerX, centerY){
+    if (joyActive) return; // a second finger doesn't steal the stick
     e.preventDefault();
     joyActive = true;
     joyPointerId = e.pointerId;
-    joystick.setPointerCapture(e.pointerId);
+    joyCenterX = centerX; joyCenterY = centerY;
+    target.setPointerCapture(e.pointerId);
     updateJoystickVector(e);
-  });
-  joystick.addEventListener('pointermove', e => {
+  }
+  function moveJoystick(e){
     if (!joyActive || e.pointerId !== joyPointerId) return;
     e.preventDefault();
     updateJoystickVector(e);
-  });
+  }
   function releaseJoystick(e){
     if (e.pointerId !== joyPointerId) return;
     joyActive = false;
     joyPointerId = null;
     joyDX = 0; joyDY = 0;
     joystickKnob.style.transform = 'translate(0px, 0px)';
+    positionJoystick();
   }
-  joystick.addEventListener('pointerup', releaseJoystick);
-  joystick.addEventListener('pointercancel', releaseJoystick);
+  joystick.addEventListener('pointerdown', e => {
+    const rect = joystick.getBoundingClientRect();
+    startJoystick(e, joystick, rect.left + rect.width/2, rect.top + rect.height/2);
+  });
+  canvas.addEventListener('pointerdown', e => {
+    if (!running || e.pointerType === 'mouse') return;
+    joystick.style.left = Math.round(e.clientX - JOY_SIZE/2) + 'px';
+    joystick.style.top = Math.round(e.clientY - JOY_SIZE/2) + 'px';
+    startJoystick(e, canvas, e.clientX, e.clientY);
+  });
+  for (const el of [joystick, canvas]){
+    el.addEventListener('pointermove', moveJoystick);
+    el.addEventListener('pointerup', releaseJoystick);
+    el.addEventListener('pointercancel', releaseJoystick);
+  }
 
   // The canvas is letterboxed inside #wrap (its aspect ratio rarely matches the
   // viewport's), so anchor the joystick to the canvas's actual rendered bounds rather
   // than the full-viewport wrapper — otherwise it can land in the empty letterbox
   // space below the canvas on tall/phone-shaped screens.
   function positionJoystick(){
+    if (joyActive) return; // it's following a finger; releaseJoystick() puts it back
     const rect = canvas.getBoundingClientRect();
-    const joySize = 120, margin = 24;
+    const joySize = JOY_SIZE, margin = 24;
     joystick.style.left = Math.round(rect.left + margin) + 'px';
     joystick.style.top = Math.round(bottomAnchoredTop(rect.bottom, window.innerHeight, joySize, margin)) + 'px';
   }
@@ -919,6 +947,8 @@ import { resolveInputDirection, screenInputToWorldMove, easedVelocity, easedPitc
     hudEl.style.top = Math.round(rect.top) + 'px';
     hudEl.style.left = Math.round(rect.left) + 'px';
     hudEl.style.right = Math.round(window.innerWidth - rect.right) + 'px';
+    // Banner (PIG'S GONNA BLOW / LEVEL / bonus) sits below the HUD, clear of the EXIT button.
+    warningEl.style.top = Math.round(rect.top + Math.max(rect.height * 0.22, 110)) + 'px';
   }
   function positionOverlayControls(){
     positionJoystick();
@@ -953,7 +983,7 @@ import { resolveInputDirection, screenInputToWorldMove, easedVelocity, easedPitc
     shockActive = false; shockRadius = 0; shakeTimer = 0; particles = []; coinDrops = []; groundBurgers = [];
     coinBatches.reset(); bonusMsgTimer = 0;
     burgerProjectiles = [];
-    throwBtn.classList.add('hidden');
+    hideThrowBtn();
     warningEl.style.display = 'none';
     carrying = false; invuln = 0;
     elapsedMs = 0;
@@ -1071,10 +1101,21 @@ import { resolveInputDirection, screenInputToWorldMove, easedVelocity, easedPitc
     });
   }
 
+  let lastThrowHint = null;
+  // Direct hides go through here so the change check in updateThrowBtn() doesn't skip
+  // re-showing the button when the next run starts with the same label.
+  function hideThrowBtn(){
+    lastThrowHint = null;
+    throwBtn.classList.add('hidden');
+  }
   function updateThrowBtn(){
-    const ready = canThrow({ running, carrying, pigState, coins });
-    if (ready) throwBtn.classList.remove('hidden');
-    else throwBtn.classList.add('hidden');
+    // Runs every frame, so only touch the DOM when the label actually changes.
+    const hint = running ? (throwBlocker({ carrying, pigState, coins }) || '(E)') : null;
+    if (hint === lastThrowHint) return;
+    lastThrowHint = hint;
+    throwBtn.classList.toggle('hidden', hint === null);
+    throwBtn.classList.toggle('blocked', hint !== '(E)');
+    throwBtnHint.textContent = hint || '(E)';
   }
   function throwBurger(){
     if (!canThrow({ running, carrying, pigState, coins })) return;
@@ -1170,7 +1211,7 @@ import { resolveInputDirection, screenInputToWorldMove, easedVelocity, easedPitc
   function endGame(){
     running = false;
     joystick.classList.add('hidden');
-    throwBtn.classList.add('hidden');
+    hideThrowBtn();
     windIndicatorEl.classList.add('hidden');
     hudEl.classList.add('hidden');
     warningEl.style.display = 'none';
@@ -1188,7 +1229,7 @@ import { resolveInputDirection, screenInputToWorldMove, easedVelocity, easedPitc
   function showVictoryScreen(){
     running = false;
     joystick.classList.add('hidden');
-    throwBtn.classList.add('hidden');
+    hideThrowBtn();
     windIndicatorEl.classList.add('hidden');
     hudEl.classList.add('hidden');
     warningEl.style.display = 'none';
@@ -1326,6 +1367,7 @@ import { resolveInputDirection, screenInputToWorldMove, easedVelocity, easedPitc
         cooldownTimer = COOLDOWN_FRAMES;
         shockActive = false;
         feedProgress = 0;
+        const prevBurgersToFull = burgersToFull;
         burgersToFull = burgersToFullFor(score);
 
         level = levelFor(roundsSurvived);
@@ -1335,7 +1377,8 @@ import { resolveInputDirection, screenInputToWorldMove, easedVelocity, easedPitc
           showVictoryScreen();
         } else {
           bonusMsgTimer = 70;
-          warningEl.textContent = 'LEVEL ' + level + '!';
+          warningEl.textContent = 'LEVEL ' + level + '!' +
+            (burgersToFull < prevBurgersToFull ? ' PIG NOW NEEDS ' + burgersToFull + ' 🍔' : '');
           warningEl.style.display = 'block';
           sfxBonus();
         }
@@ -1534,6 +1577,21 @@ import { resolveInputDirection, screenInputToWorldMove, easedVelocity, easedPitc
     ctx.lineWidth = Math.max(3 + flash*3, 1);
     ctx.stroke();
     ctx.restore();
+
+    // How far the shockwave will reach once the pig lands -- a faint dashed ring, so the blast
+    // isn't a surprise. Players read the red zone as the only danger and got caught by the
+    // wave (Reddit feedback). Same reach explodePig() will use (shockParamsFor, pre-increment).
+    const blast = screenEllipseRadii(shockParamsFor(roundsSurvived).maxRadius);
+    ctx.save();
+    ctx.globalAlpha = 0.25 + 0.35*t;
+    ctx.strokeStyle = 'rgba(255,170,40,1)';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([10, 8]);
+    ctx.lineDashOffset = -t * 60; // slow crawl so it reads as "coming", not as scenery
+    ctx.beginPath();
+    ctx.ellipse(center.sx, center.sy, blast.rx, blast.ry, 0, 0, Math.PI*2);
+    ctx.stroke();
+    ctx.restore();
   }
 
   function drawSinglePig(){
@@ -1605,8 +1663,24 @@ import { resolveInputDirection, screenInputToWorldMove, easedVelocity, easedPitc
     ctx.fillRect(barX-2, barY-2, barW+4, 14);
     ctx.fillStyle = '#2ecc71';
     ctx.fillRect(barX, barY, barW * Math.min(feedProgress/burgersToFull,1), 10);
+    // One notch per burger, plus a count, so it's clear how many more the pig needs (that
+    // number drops as the score climbs, and golden burgers fill two notches).
+    ctx.strokeStyle = 'rgba(255,255,255,0.7)'; ctx.lineWidth = 1;
+    for (let i = 1; i < burgersToFull; i++){
+      const nx = Math.round(barX + barW * i / burgersToFull) + 0.5;
+      ctx.beginPath(); ctx.moveTo(nx, barY); ctx.lineTo(nx, barY + 10); ctx.stroke();
+    }
     ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5;
     ctx.strokeRect(barX, barY, barW, 10);
+    ctx.save();
+    ctx.font = 'bold 20px Arial, sans-serif';
+    ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+    ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,0.6)';
+    const label = '🍔 ' + Math.min(feedProgress, burgersToFull) + '/' + burgersToFull;
+    ctx.strokeText(label, barX + barW + 6, barY + 5);
+    ctx.fillStyle = '#fff';
+    ctx.fillText(label, barX + barW + 6, barY + 5);
+    ctx.restore();
   }
 
   function drawShockwave(){
@@ -2013,7 +2087,7 @@ import { resolveInputDirection, screenInputToWorldMove, easedVelocity, easedPitc
     if (running) stats.track('quit', { level, score, seconds: elapsedMs / 1000 });
     running = false;
     joystick.classList.add('hidden');
-    throwBtn.classList.add('hidden');
+    hideThrowBtn();
     gameOverEl.classList.add('hidden');
     hudEl.classList.add('hidden');
     warningEl.style.display = 'none';

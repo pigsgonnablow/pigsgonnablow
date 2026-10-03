@@ -2,6 +2,23 @@
 
 Running log of notable changes, kept during dev sessions for reference.
 
+## 2026-10-02 -- clearer controls and warnings, from r/DestroyMyGame feedback
+
+A player on r/DestroyMyGame found phone steering slow, couldn't tell when throwing was allowed
+or why the pig sometimes needed more burgers, lost sight of everything behind the jump warning,
+and got caught by a shockwave they didn't know to dodge. All in index.html (plus one rule):
+
+- Touch and drag anywhere on the canvas starts the joystick at that spot; it returns to its
+  bottom-left corner on release. Mouse clicks on the canvas don't start it, so desktop is unchanged.
+- The THROW button now stays on screen during a run, greyed out with the reason it can't be used
+  (`GRAB A 🍔`, `NEED 4 🪙`, `WAIT FOR PIG`) from the new `throwBlocker()` in js/rules.js.
+- The pig's fullness bar has one notch per burger and a `🍔 2/5` count, and the level-up banner
+  says when the pig now needs fewer burgers.
+- The PIG'S GONNA BLOW / level / bonus banner is smaller and sits under the HUD instead of dead
+  center.
+- During the jump a dashed ring shows how far the shockwave will reach.
+- Service worker cache bumped to v40.
+
 ## 2026-09-30 (later) -- the stats dashboard was readable by anyone; now it needs a password
 
 The first stats release let anon call `get_stats()`, so anyone who opened
