@@ -865,10 +865,12 @@ import { resolveInputDirection, screenInputToWorldMove, easedVelocity, easedPitc
   });
 
   // on-screen joystick — works for touch, mouse, and pen via the unified Pointer Events API.
-  // It rests in the bottom-left corner, but a touch (or pen) anywhere on the canvas also starts
-  // it: the stick jumps to that spot and drives from there, then goes back to its corner on
-  // release. Reddit feedback was that steering from one corner of a phone felt slow. Mouse
-  // clicks on the canvas don't start it, so desktop play is unchanged.
+  // It always stays drawn in the bottom-left corner, but a touch (or pen) anywhere on the canvas
+  // also drives it: where the thumb lands becomes the stick's center, the drag from there steers,
+  // and the corner knob mirrors it so the player can see the input. (Reddit feedback: steering
+  // only from one corner of a phone felt slow. A first attempt moved the whole joystick under the
+  // finger; keeping it put reads better.) Mouse clicks on the canvas don't start it, so desktop
+  // play is unchanged.
   let joyActive = false;
   let joyPointerId = null;
   let joyCenterX = 0, joyCenterY = 0; // where the drag started, in client coordinates
@@ -901,7 +903,6 @@ import { resolveInputDirection, screenInputToWorldMove, easedVelocity, easedPitc
     joyPointerId = null;
     joyDX = 0; joyDY = 0;
     joystickKnob.style.transform = 'translate(0px, 0px)';
-    positionJoystick();
   }
   joystick.addEventListener('pointerdown', e => {
     const rect = joystick.getBoundingClientRect();
@@ -909,8 +910,6 @@ import { resolveInputDirection, screenInputToWorldMove, easedVelocity, easedPitc
   });
   canvas.addEventListener('pointerdown', e => {
     if (!running || e.pointerType === 'mouse') return;
-    joystick.style.left = Math.round(e.clientX - JOY_SIZE/2) + 'px';
-    joystick.style.top = Math.round(e.clientY - JOY_SIZE/2) + 'px';
     startJoystick(e, canvas, e.clientX, e.clientY);
   });
   for (const el of [joystick, canvas]){
@@ -924,7 +923,6 @@ import { resolveInputDirection, screenInputToWorldMove, easedVelocity, easedPitc
   // than the full-viewport wrapper — otherwise it can land in the empty letterbox
   // space below the canvas on tall/phone-shaped screens.
   function positionJoystick(){
-    if (joyActive) return; // it's following a finger; releaseJoystick() puts it back
     const rect = canvas.getBoundingClientRect();
     const joySize = JOY_SIZE, margin = 24;
     joystick.style.left = Math.round(rect.left + margin) + 'px';

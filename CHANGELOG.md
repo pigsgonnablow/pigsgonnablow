@@ -2,6 +2,13 @@
 
 Running log of notable changes, kept during dev sessions for reference.
 
+## 2026-10-04 -- the joystick stays in its corner
+
+The touch-anywhere joystick from 2026-10-02 moved the whole stick under the player's finger. Now
+it stays drawn bottom-left: a touch anywhere on the canvas still steers (where the thumb lands is
+the center, the drag from there is the direction), and the corner knob mirrors the drag.
+Service worker cache bumped to v42.
+
 ## 2026-10-03 -- a buyer couldn't equip their skin
 
 A player bought a skin and couldn't wear it. `equip_skin()` only *updates* the caller's

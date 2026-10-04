@@ -320,3 +320,20 @@ describe('a new run starts from a clean slate', () => {
     }
   });
 });
+
+describe('touch-anywhere steering keeps the joystick in its corner', () => {
+  // Bobby's call after the first version shipped: the joystick should stay drawn bottom-left,
+  // with a touch anywhere on the canvas still steering it (the corner knob mirrors the drag).
+  const start = html.indexOf("canvas.addEventListener('pointerdown'");
+  const handler = html.slice(start, html.indexOf('});', start));
+
+  it('a canvas touch starts the stick, but mouse clicks do not', () => {
+    expect(start).toBeGreaterThan(-1);
+    expect(handler).toContain("e.pointerType === 'mouse'");
+    expect(handler).toContain('startJoystick(e, canvas, e.clientX, e.clientY)');
+  });
+
+  it('REGRESSION: the canvas touch handler never moves the joystick element', () => {
+    expect(handler).not.toMatch(/joystick\.style\.(left|top)/);
+  });
+});
