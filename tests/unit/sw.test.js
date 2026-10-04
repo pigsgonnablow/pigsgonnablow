@@ -210,3 +210,11 @@ describe('REGRESSION: cache version is bumped whenever a cached asset changes', 
     ).not.toBe(baseSw.cacheName);
   });
 });
+
+describe('the version label on the title screen', () => {
+  it('matches the service worker cache version, so the label always names the build being served', () => {
+    const label = /id="appVersion"[^>]*>(v\d+)</.exec(read('index.html'))?.[1];
+    expect(label).toBeDefined();
+    expect(sw_CACHE).toBe('burger-pig-' + label);
+  });
+});
