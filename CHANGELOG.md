@@ -2,6 +2,20 @@
 
 Running log of notable changes, kept during dev sessions for reference.
 
+## 2026-10-07 -- a CrazyGames version of the game
+
+`node tools/build-crazygames.mjs` builds dist/crazygames/ (gitignored): a copy of index.html +
+js/ converted to meet CrazyGames' rules. The live site is unchanged. In the copy, the
+anti-framing guard and CSP meta are removed (CrazyGames always embeds games in an iframe, and the
+CSP would block their SDK), their SDK is loaded, Supabase is left out (no outside logins or our
+own payments are allowed there), and the account/shop/skins/leaderboard UI and Privacy/Terms
+links are hidden. The long title-screen paragraphs are hidden too, so START fits at their
+800x450 test size.
+
+New js/portal.js reports gameplay start/stop to the CrazyGames SDK (start, play again, keep
+playing after victory; game over, victory, exit). On pigsgonnablow.com there's no SDK and it's a
+no-op. The service worker isn't registered in a portal build. Service worker cache bumped to v44.
+
 ## 2026-10-04 -- the joystick stays in its corner
 
 The touch-anywhere joystick from 2026-10-02 moved the whole stick under the player's finger. Now
