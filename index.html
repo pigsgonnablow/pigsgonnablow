@@ -241,7 +241,7 @@
   <div id="overlay">
     <!-- Which build this browser is running. Must match sw.js's CACHE_NAME version (a test checks),
          so a stale cached copy is easy to spot: compare this with the latest on GitHub. -->
-    <div id="appVersion" style="position:absolute; top:8px; left:10px; font-size:11px; color:rgba(255,255,255,0.45); font-family:Arial, sans-serif; pointer-events:none;">v43</div>
+    <div id="appVersion" style="position:absolute; top:8px; left:10px; font-size:11px; color:rgba(255,255,255,0.45); font-family:Arial, sans-serif; pointer-events:none;">v44</div>
     <div class="emoji-row">💥<span id="oinkBtn" title="tap for an oink!">🐷</span>💥 <span id="roarBtn" title="tap for a roar!">🐉</span></div>
     <h1>PIGS GONNA BLOW!</h1>
     <p style="color:#ffd23f; font-weight:900; letter-spacing:0.5px; margin-bottom:8px;">Cheeseburger Dragon vs. The Exploding Pig</p>
@@ -282,7 +282,7 @@
       </div>
       <p id="accountStatus"></p>
     </div>
-    <p style="font-size:11px; margin-top:14px;">
+    <p id="privacyLinks" style="font-size:11px; margin-top:14px;">
       <a href="./privacy.html" style="color:#9aa7c2;">Privacy Policy</a> ·
       <a href="./terms.html" style="color:#9aa7c2;">Terms</a>
     </p>
@@ -394,6 +394,7 @@ import { createAuth } from './js/auth.js';
 import { createShop } from './js/shop.js';
 import { createMySkins } from './js/myskins.js';
 import { createStats } from './js/stats.js';
+import { createPortal } from './js/portal.js';
 import {
   START_LIVES, MAX_LIVES, START_BURGERS_TO_FULL, BURGER_THROW_COST,
   START_GROUND_BURGERS,
@@ -487,6 +488,10 @@ import { resolveInputDirection, screenInputToWorldMove, easedVelocity, easedPitc
     fetchImpl: window.fetch ? window.fetch.bind(window) : null
   });
   stats.track('visit');
+
+  // No-op on pigsgonnablow.com; reports gameplay start/stop in the CrazyGames build.
+  const portal = createPortal(window);
+  portal.init();
 
   const auth = createAuth({ url: SUPABASE_URL, anonKey: SUPABASE_ANON_KEY });
   const leaderboard = createLeaderboard({
@@ -1220,6 +1225,7 @@ import { resolveInputDirection, screenInputToWorldMove, easedVelocity, easedPitc
     finalScoreEl.textContent = 'Score: ' + score + '  •  Time: ' + formatTime(elapsedMs);
     gameOverEl.classList.remove('hidden');
 
+    portal.gameplayStop();
     stats.track('game_over', { level, score, seconds: elapsedMs / 1000 });
     leaderboard.onGameOver(score);
   }
@@ -1237,6 +1243,7 @@ import { resolveInputDirection, screenInputToWorldMove, easedVelocity, easedPitc
     sfxBonus();
     victoryScoreText.textContent = 'Score: ' + score + '  •  Time: ' + formatTime(elapsedMs);
     victoryScreen.classList.remove('hidden');
+    portal.gameplayStop();
     stats.track('victory', { level, score, seconds: elapsedMs / 1000 });
   }
   function resumeAfterVictory(){
@@ -1244,6 +1251,7 @@ import { resolveInputDirection, screenInputToWorldMove, easedVelocity, easedPitc
     joystick.classList.remove('hidden');
     hudEl.classList.remove('hidden');
     running = true;
+    portal.gameplayStart();
     lastTime = performance.now();
     requestAnimationFrame(loop);
   }
@@ -2068,6 +2076,7 @@ import { resolveInputDirection, screenInputToWorldMove, easedVelocity, easedPitc
     running = true;
     lastTime = performance.now();
     startTime = lastTime;
+    portal.gameplayStart();
     stats.track('game_start');
     requestAnimationFrame(loop);
   });
@@ -2080,12 +2089,14 @@ import { resolveInputDirection, screenInputToWorldMove, easedVelocity, easedPitc
     running = true;
     lastTime = performance.now();
     startTime = lastTime;
+    portal.gameplayStart();
     stats.track('game_start');
     requestAnimationFrame(loop);
   });
 
   exitBtn.addEventListener('click', () => {
     if (running) stats.track('quit', { level, score, seconds: elapsedMs / 1000 });
+    portal.gameplayStop();
     running = false;
     joystick.classList.add('hidden');
     hideThrowBtn();
@@ -2172,11 +2183,14 @@ import { resolveInputDirection, screenInputToWorldMove, easedVelocity, easedPitc
 })();
 
 const isLocalDev = ['localhost','127.0.0.1'].includes(location.hostname);
-if ('serviceWorker' in navigator && !isLocalDev) {
+// A portal build (tools/build-crazygames.mjs) ships no sw.js and is served from the portal's own
+// origin, so it must not register one.
+const isPortalBuild = !!document.documentElement.dataset.portal;
+if ('serviceWorker' in navigator && !isLocalDev && !isPortalBuild) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('sw.js').catch(() => {});
   });
-} else if ('serviceWorker' in navigator && isLocalDev) {
+} else if ('serviceWorker' in navigator && isLocalDev && !isPortalBuild) {
   // dev safety net: rip out any service worker/cache left over from earlier local testing
   navigator.serviceWorker.getRegistrations().then(regs => regs.forEach(r => r.unregister()));
   if (window.caches) caches.keys().then(keys => keys.forEach(k => caches.delete(k)));
