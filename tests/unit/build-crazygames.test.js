@@ -23,12 +23,20 @@ describe('CrazyGames build of index.html', () => {
     expect(out).not.toContain('js/vendor/supabase.js');
   });
 
-  it('marks the page as a portal build and hides accounts, shop, skins, leaderboard and outbound links', () => {
+  it('marks the page as a portal build and hides accounts, shop, skins and leaderboard', () => {
     expect(out).toContain('<html lang="en" data-portal="crazygames">');
-    for (const id of ['viewLeaderboardBtn', 'viewShopBtn', 'viewMySkinsBtn', 'accountBox', 'privacyLinks', 'scoreSubmitBox', 'leaderboardBox']) {
+    for (const id of ['viewLeaderboardBtn', 'viewShopBtn', 'viewMySkinsBtn', 'accountBox', 'scoreSubmitBox', 'leaderboardBox']) {
       expect(out).toMatch(new RegExp(`#${id}[,\\s]`));
       expect(html, `${id} must still exist in index.html`).toContain(`id="${id}"`);
     }
+  });
+
+  it('keeps the Privacy Policy and Terms links visible, pointing at the live site in a new tab', () => {
+    expect(out).not.toMatch(/#privacyLinks,/);
+    expect(out).toMatch(/#privacyLinks \{ position:fixed/);
+    expect(out).toContain('href="https://www.pigsgonnablow.com/privacy.html" target="_blank" rel="noopener"');
+    expect(out).toContain('href="https://www.pigsgonnablow.com/terms.html" target="_blank" rel="noopener"');
+    expect(out).not.toContain('href="./privacy.html"');
   });
 
   it('the main site keeps its protections (only the copy is changed)', () => {
