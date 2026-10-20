@@ -724,6 +724,22 @@ import { resolveInputDirection, screenInputToWorldMove, easedVelocity, easedPitc
     ctx.restore();
   }
 
+  // ---------- Blender-rendered props ----------
+  // props.png is rendered from blender/props.blend (see blender/make_props.py): one 256px frame
+  // per model, each framed so its larger side fills PROP_FILL of the frame, centred. Until it
+  // loads (or if it fails to) everything falls back to the emoji / hand-drawn versions.
+  const propSprite = new Image();
+  propSprite.src = 'props.png';
+  const PROP_FRAME = 256, PROP_FILL = 0.9;
+  const PROP_FRAMES = { dragon:0, burger:1, coin:2, rock0:3, rock1:4, rock2:5, daisy:6, blossom:7, tulip:8 };
+  const FLOWER_PROPS = { '🌼':'daisy', '🌸':'blossom', '🌷':'tulip' };
+  function propsReady(){ return propSprite.complete && propSprite.naturalWidth > 0; }
+  // Draws a prop centred on (x, y) with its larger side `size` px across.
+  function drawProp(name, x, y, size){
+    const s = size / PROP_FILL;
+    ctx.drawImage(propSprite, PROP_FRAMES[name]*PROP_FRAME, 0, PROP_FRAME, PROP_FRAME, x - s/2, y - s/2, s, s);
+  }
+
   // ---------- static ground decoration (flowers/rocks scattered once at load, purely
   // cosmetic -- breaks up the flat green floor the same way the sky clouds do overhead).
   // Kept clear of the pig/dragon spawn points so the opening frame doesn't look cluttered.
@@ -746,6 +762,11 @@ import { resolveInputDirection, screenInputToWorldMove, easedVelocity, easedPitc
     }
   })();
   function drawSingleRock(d, scr){
+    if (propsReady()){
+      // a rendered rock doesn't spin flat on the ground, so its seeded angle picks a variant
+      drawProp('rock' + (Math.floor(d.rot*10) % 3), scr.sx, scr.sy, d.size*1.9);
+      return;
+    }
     ctx.save();
     ctx.translate(scr.sx, scr.sy);
     ctx.rotate(d.rot);
@@ -766,6 +787,8 @@ import { resolveInputDirection, screenInputToWorldMove, easedVelocity, easedPitc
       const scr = worldToScreen(d.x, d.y);
       if (d.type === 'rock'){
         drawSingleRock(d, scr);
+      } else if (propsReady()){
+        drawProp(FLOWER_PROPS[d.emoji], scr.sx, scr.sy, d.size*1.7);
       } else {
         ctx.font = d.size + 'px serif';
         ctx.fillText(d.emoji, scr.sx, scr.sy);
@@ -1782,10 +1805,7 @@ import { resolveInputDirection, screenInputToWorldMove, easedVelocity, easedPitc
         ctx.shadowBlur = 14;
         ctx.filter = 'sepia(1) saturate(6) hue-rotate(-10deg) brightness(1.15)';
       }
-      ctx.font = (carryingGolden ? 30 : 26) + 'px serif';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText('🍔', 0, by);
+      drawBurger(0, by, carryingGolden ? 30 : 26);
       ctx.shadowBlur = 0;
       ctx.filter = 'none';
     }
@@ -1815,15 +1835,37 @@ import { resolveInputDirection, screenInputToWorldMove, easedVelocity, easedPitc
       ctx.scale(s, s);
     }
 
-    ctx.font = (dragon.size) + 'px serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
     ctx.filter = dragonFilter; // 'none' or a recolor filter for skins that reuse this glyph -- see dragonFilter
-    ctx.fillText(dragonEmoji, 0, 0);
+    drawDragonGlyph();
     ctx.filter = 'none';
     ctx.restore();
 
     ctx.restore();
+  }
+
+  // The default 🐉 (and skins that recolor it with a filter) is the Blender dragon, which faces
+  // screen-left like the emoji so the mirroring and pitch above apply unchanged. Skins that
+  // swap in a different emoji keep drawing that emoji.
+  function drawDragonGlyph(){
+    if (dragonEmoji === '🐉' && propsReady()){
+      drawProp('dragon', 0, 0, dragon.size*1.75);
+      return;
+    }
+    ctx.font = dragon.size + 'px serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(dragonEmoji, 0, 0);
+  }
+
+  function drawBurger(x, y, size){
+    if (propsReady()){
+      drawProp('burger', x, y, size*1.3);
+      return;
+    }
+    ctx.font = size + 'px serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('🍔', x, y);
   }
 
   function drawSingleGroundBurger(b){
@@ -1853,9 +1895,7 @@ import { resolveInputDirection, screenInputToWorldMove, easedVelocity, easedPitc
       ctx.shadowBlur = 16 + Math.sin(glowClock*3)*6;
       ctx.filter = 'sepia(1) saturate(6) hue-rotate(-10deg) brightness(1.15)';
     }
-    ctx.font = (b.golden ? 40 : 30) + 'px serif';
-    ctx.textAlign='center'; ctx.textBaseline='middle';
-    ctx.fillText('🍔', scr.sx, scr.sy);
+    drawBurger(scr.sx, scr.sy, b.golden ? 40 : 30);
     ctx.filter = 'none';
     ctx.restore();
   }
@@ -1877,9 +1917,13 @@ import { resolveInputDirection, screenInputToWorldMove, easedVelocity, easedPitc
     ctx.translate(scr.sx, scr.sy);
     ctx.rotate(c.rot);
     ctx.scale(scale, scale);
-    ctx.font = '28px serif';
-    ctx.textAlign='center'; ctx.textBaseline='middle';
-    ctx.fillText('🪙', 0, 0);
+    if (propsReady()){
+      drawProp('coin', 0, 0, 32);
+    } else {
+      ctx.font = '28px serif';
+      ctx.textAlign='center'; ctx.textBaseline='middle';
+      ctx.fillText('🪙', 0, 0);
+    }
     ctx.restore();
   }
 
@@ -1900,9 +1944,7 @@ import { resolveInputDirection, screenInputToWorldMove, easedVelocity, easedPitc
     }
     ctx.translate(scr.sx, scr.sy);
     ctx.rotate(b.rot);
-    ctx.font = (b.golden ? 32 : 28) + 'px serif';
-    ctx.textAlign='center'; ctx.textBaseline='middle';
-    ctx.fillText('🍔', 0, 0);
+    drawBurger(0, 0, b.golden ? 32 : 28);
     ctx.filter = 'none';
     ctx.restore();
   }
@@ -1993,8 +2035,6 @@ import { resolveInputDirection, screenInputToWorldMove, easedVelocity, easedPitc
   function drawDragonTrail(){
     if (!dragonTrail.length) return;
     ctx.save();
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.font = dragon.size + 'px serif';
     for (let i=0;i<dragonTrail.length;i++){
       const p = dragonTrail[i];
       const scr = worldToScreen(p.x, p.y);
@@ -2002,7 +2042,7 @@ import { resolveInputDirection, screenInputToWorldMove, easedVelocity, easedPitc
       ctx.save();
       ctx.translate(scr.sx, scr.sy);
       ctx.scale(-dragon.faceX, 1); // match the main dragon's mirror so the smear reads as the same glyph
-      ctx.fillText(dragonEmoji, 0, 0);
+      drawDragonGlyph();
       ctx.restore();
     }
     ctx.restore();

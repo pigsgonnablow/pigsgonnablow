@@ -15,6 +15,15 @@ pig and its flat ellipse shadow are drawn instead. The fullness bar now rises as
 pig.png is precached by the service worker and copied into the CrazyGames build. Service worker
 cache bumped to v45.
 
+The rest of the game's objects are Blender-rendered too: props.png, from blender/props.blend
+(`python blender/make_props.py`), holds the dragon, burger, coin, three rocks and the three
+flowers, each framed the same way so `drawProp(name, x, y, size)` can draw any of them. The
+default 🐉 is now the rendered dragon (same left-facing profile, so mirroring, pitch and the
+red skin's color filter work unchanged); skins that swap in a different emoji keep their
+emoji. Ground, carried and thrown burgers (golden ones keep their filter and glow), coins,
+rocks and flowers all use the sheet. Effects (sparkles, leaves, clouds, birds) are unchanged.
+Everything falls back to the old emoji/hand-drawn art until the sheet loads.
+
 ## 2026-10-07 -- a CrazyGames version of the game
 
 `node tools/build-crazygames.mjs` builds dist/crazygames/ (gitignored): a copy of index.html +

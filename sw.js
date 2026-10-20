@@ -9,6 +9,7 @@ const ASSETS = [
   './icon-512.png',
   './icon-512-maskable.png',
   './pig.png',
+  './props.png',
   './js/vendor/supabase.js',
   './js/iso.js',
   './js/audio.js',

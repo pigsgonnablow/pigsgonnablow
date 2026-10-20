@@ -60,6 +60,7 @@ export function build(){
   cpSync(resolve(ROOT, 'js'), resolve(OUT, 'js'), { recursive: true, filter: (src) => !src.includes('/vendor') });
   cpSync(resolve(ROOT, 'icon-192.png'), resolve(OUT, 'icon-192.png'));
   cpSync(resolve(ROOT, 'pig.png'), resolve(OUT, 'pig.png'));
+  cpSync(resolve(ROOT, 'props.png'), resolve(OUT, 'props.png'));
   return OUT;
 }
 
