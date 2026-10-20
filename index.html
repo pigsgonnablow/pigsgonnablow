@@ -845,11 +845,15 @@ import { resolveInputDirection, screenInputToWorldMove, easedVelocity, easedPitc
   };
 
   // Sprite sheet rendered from blender/pig.blend (see blender/make_pig.py): 256px frames,
-  // columns = mouth open level 0-5, rows = normal / about-to-blow (jumping). Until it loads
-  // (or if it fails to) drawSinglePig falls back to the hand-drawn pig.
+  // columns = mouth open level 0-5, rows = normal / about-to-blow (jumping), and a third row
+  // whose first frame is the pig's ground shadow on its own. Until it loads (or if it fails
+  // to) drawSinglePig falls back to the hand-drawn pig and its flat ellipse shadow.
   const pigSprite = new Image();
   pigSprite.src = 'pig.png';
-  const PIG_FRAME = 256, PIG_LEVELS = 6;
+  const PIG_FRAME = 256, PIG_LEVELS = 6, PIG_SHADOW_ROW = 2;
+  // Where a sprite frame lands relative to the pig's position (in baseSize units, before the
+  // pig's own scale): wide enough to match the hand-drawn body, feet just below the centre.
+  const PIG_SPRITE_SIZE = 2.9, PIG_SPRITE_TOP = -1.75;
 
 
   // faceX: -1 = facing screen-left, 1 = facing screen-right. Kept separately from `facing`
@@ -1615,31 +1619,41 @@ import { resolveInputDirection, screenInputToWorldMove, easedVelocity, easedPitc
     const scr = worldToScreen(pig.x, pig.y, pig.airHeight);
     const wob = Math.sin(pig.wobble)*2;
 
+    const scale = pigVisualScale();
+    const useSprite = pigSprite.complete && pigSprite.naturalWidth;
+    const size = pig.baseSize*PIG_SPRITE_SIZE;
+
     // ground shadow — stays on the floor even while the pig is airborne, separate
     // from the landing-zone indicator (which marks where it's *about* to land)
     ctx.save();
-    ctx.fillStyle = 'rgba(0,0,0,0.15)';
-    ctx.beginPath();
-    ctx.ellipse(ground.sx, ground.sy, pig.baseSize*0.8, 12, 0,0,Math.PI*2);
-    ctx.fill();
+    if (useSprite){
+      // The rendered shadow pool lines up with the sprite's hooves when the pig is on the
+      // ground; in the air it stays put and fades as the pig rises.
+      ctx.translate(ground.sx + wob, ground.sy);
+      ctx.scale(scale, scale);
+      ctx.globalAlpha = 0.7 / (1 + pig.airHeight / 60);
+      ctx.drawImage(pigSprite, 0, PIG_SHADOW_ROW*PIG_FRAME, PIG_FRAME, PIG_FRAME,
+                    -size/2, pig.baseSize*PIG_SPRITE_TOP, size, size);
+    } else {
+      ctx.fillStyle = 'rgba(0,0,0,0.15)';
+      ctx.beginPath();
+      ctx.ellipse(ground.sx, ground.sy, pig.baseSize*0.8, 12, 0,0,Math.PI*2);
+      ctx.fill();
+    }
     ctx.restore();
 
     ctx.save();
     ctx.translate(scr.sx + wob, scr.sy);
-    const scale = pigVisualScale();
     ctx.scale(scale, scale);
     if (invuln>0 && pigState==='idle'){} // no-op
 
-    if (pigSprite.complete && pigSprite.naturalWidth){
+    if (useSprite){
       // burgersToFull drops from 5 to 3 as the score climbs, so pick the frame by how full the
       // pig is rather than by raw burger count -- it's always wide open on the last burger.
       const col = Math.round(Math.min(feedProgress / burgersToFull, 1) * (PIG_LEVELS - 1));
       const row = pigState==='jumping' ? 1 : 0;
-      // Sized so the body is about as wide as the hand-drawn one, with the feet just below
-      // the ground shadow's centre.
-      const size = pig.baseSize*2.9;
       ctx.drawImage(pigSprite, col*PIG_FRAME, row*PIG_FRAME, PIG_FRAME, PIG_FRAME,
-                    -size/2, -pig.baseSize*1.75, size, size);
+                    -size/2, pig.baseSize*PIG_SPRITE_TOP, size, size);
     } else {
       const bodyColor = pigState==='jumping' ? '#ff8fa3' : '#ffb5c2';
       ctx.fillStyle = bodyColor;

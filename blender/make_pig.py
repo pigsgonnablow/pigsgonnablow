@@ -7,7 +7,9 @@ Writes:
     blender/pig.blend   the model, open it in Blender to tweak
     pig.png             sprite sheet used by index.html
                         columns = mouth open level (0..5, one per burger fed)
-                        rows    = 0 normal, 1 warning (about to blow)
+                        rows    = 0 normal, 1 warning (about to blow),
+                                  2 the pig's ground shadow alone (column 0 only), so the game
+                                  can keep it on the floor while the pig jumps
 """
 import math
 import os
@@ -15,7 +17,7 @@ import tempfile
 
 import bpy
 from mathutils import Vector
-from PIL import Image
+from PIL import Image, ImageFilter
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -146,6 +148,8 @@ def build():
         d.color = color
         if kind == 'AREA':
             d.size = size
+        if kind == 'SUN':
+            d.angle = math.radians(12)  # soft-edged shadows
         o = bpy.data.objects.new(name, d)
         o.location = loc
         o.rotation_euler = (Vector((0, 0, 0)) - Vector(loc)).to_track_quat('-Z', 'Y').to_euler()
@@ -169,15 +173,23 @@ def build():
     scene.render.image_settings.color_mode = 'RGBA'
     scene.view_settings.view_transform = 'Standard'
 
-    return scene, mouth_obj, body_bsdf
+    # Floor under the hooves that only shows the shadows falling on it. It is hidden for the pig
+    # frames and shown, with the pig itself hidden from the camera, for the shadow frame.
+    bpy.ops.mesh.primitive_plane_add(size=6, location=(0, 0, -1.07))
+    floor = bpy.context.object
+    floor.name = 'ShadowFloor'
+    floor.is_shadow_catcher = True
+    floor.hide_render = True
+
+    return scene, mouth_obj, body_bsdf, floor
 
 
 def main():
-    scene, mouth_obj, body_bsdf = build()
+    scene, mouth_obj, body_bsdf, floor = build()
     bpy.context.preferences.filepaths.save_version = 0
     bpy.ops.wm.save_as_mainfile(filepath=os.path.join(HERE, 'pig.blend'))
 
-    sheet = Image.new('RGBA', (FRAME * LEVELS, FRAME * 2))
+    sheet = Image.new('RGBA', (FRAME * LEVELS, FRAME * 3))
     with tempfile.TemporaryDirectory() as tmp:
         for row, color in enumerate(('#ffb5c2', '#ff7f96')):
             body_bsdf.inputs['Base Color'].default_value = srgb(color)
@@ -189,6 +201,44 @@ def main():
                 bpy.ops.render.render(write_still=True)
                 sheet.paste(Image.open(path), (lvl * FRAME, row * FRAME))
                 print('rendered', row, lvl, flush=True)
+
+        # The shadow gets its own near-overhead sun, so it stays a compact pool under the pig
+        # (the key and rim lights would throw it far off the frame).
+        lights = [o for o in scene.objects if o.type == 'LIGHT']
+        for o in lights:
+            o.hide_render = True
+        shadow_sun = bpy.data.lights.new('ShadowSun', 'SUN')
+        shadow_sun.energy = 3.0
+        shadow_sun.angle = math.radians(25)
+        sun_obj = bpy.data.objects.new('ShadowSun', shadow_sun)
+        sun_obj.location = (-1.2, -5, 8)
+        sun_obj.rotation_euler = (Vector((0, 0, 0)) - sun_obj.location).to_track_quat('-Z', 'Y').to_euler()
+        scene.collection.objects.link(sun_obj)
+        floor.hide_render = False
+        pig_parts = [o for o in scene.objects if o.type in ('MESH', 'CURVE') and o is not floor]
+        for o in pig_parts:
+            o.visible_camera = False
+        path = os.path.join(tmp, 'pig_shadow.png')
+        scene.render.filepath = path
+        bpy.ops.render.render(write_still=True)
+        # Where the hooves meet the floor the catcher goes fully black; capping and blurring the alpha blends
+        # those spots into the pool so they don't show as dots while the pig is in the air.
+        shadow = Image.open(path).convert('RGBA')
+        shadow.putalpha(shadow.getchannel('A').point(lambda v: min(v, 200)).filter(ImageFilter.GaussianBlur(4)))
+        # Fade the last few pixels to nothing so the pool never ends in a hard line at the frame edge.
+        edge = 12
+        fade = Image.new('L', (FRAME, FRAME))
+        fade.putdata([int(255 * min(1, x / edge, y / edge, (FRAME - 1 - x) / edge, (FRAME - 1 - y) / edge))
+                      for y in range(FRAME) for x in range(FRAME)])
+        shadow.putalpha(Image.composite(shadow.getchannel('A'), Image.new('L', (FRAME, FRAME)), fade))
+        sheet.paste(shadow, (0, 2 * FRAME))
+        print('rendered shadow', flush=True)
+        for o in pig_parts:
+            o.visible_camera = True
+        floor.hide_render = True
+        bpy.data.objects.remove(sun_obj)
+        for o in lights:
+            o.hide_render = False
     sheet.save(os.path.join(ROOT, 'pig.png'), optimize=True)
 
 

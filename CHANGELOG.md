@@ -8,8 +8,10 @@ The pig is now drawn from pig.png, a sprite sheet rendered in Blender from blend
 (rebuild it with `pip install bpy pillow` then `python blender/make_pig.py`). Six columns are
 the mouth opening wider as the pig fills up, picked by feedProgress/burgersToFull so it is wide
 open on the last burger whether the pig needs 5 or 3; the second row is the redder pig used
-while it's jumping. Until the image loads (or if it fails) the old hand-drawn pig is drawn
-instead. The fullness bar now rises as the pig puffs up so the bigger head doesn't cover it.
+while it's jumping. A third row holds a soft shadow rendered in Blender on its own (a shadow
+catcher floor under a near-overhead sun), drawn on the ground under the hooves; it stays on the
+ground and fades while the pig jumps. Until the image loads (or if it fails) the old hand-drawn
+pig and its flat ellipse shadow are drawn instead. The fullness bar now rises as the pig puffs up so the bigger head doesn't cover it.
 pig.png is precached by the service worker and copied into the CrazyGames build. Service worker
 cache bumped to v45.
 
