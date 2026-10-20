@@ -9,7 +9,8 @@ Writes:
     props.png            sprite sheet used by index.html: one 256px frame per prop, in PROPS
                          order. Each model is framed to fill the same share of its frame
                          (FILL), centred, so the game can draw any of them at a given size the
-                         same way.
+                         same way. Row 1 is the dragon's walk/flap cycle (WALK_FRAMES frames),
+                         framed exactly like its row-0 standing frame.
 """
 import math
 import os
@@ -26,7 +27,10 @@ from make_pig import HERE, ROOT, material, smooth, sphere, cylinder
 FRAME = 256
 FILL = 0.9  # the model's larger side spans this share of the frame
 # Frame order in props.png; index.html's PROP_FRAMES must match.
-PROPS = ['dragon', 'burger', 'coin', 'rock0', 'rock1', 'rock2', 'daisy', 'blossom', 'tulip']
+PROPS = ['dragon', 'burger', 'coin', 'rock0', 'rock1', 'rock2', 'daisy', 'blossom', 'tulip',
+         'cloud0', 'cloud1', 'cloud2', 'grass0', 'grass1', 'grass2']
+# Row 1 of props.png: the dragon's walk/flap cycle, same framing as its row-0 frame.
+WALK_FRAMES = 8
 
 
 def cone(name, loc, r1, r2, depth, rot, mat, scale=(1, 1, 1), verts=24, sub=1):
@@ -64,6 +68,18 @@ def flat_shape(name, points, thickness, loc, rot, mat, sub=2):
     return o
 
 
+def pivot(name, loc, children):
+    """An empty at loc that the given objects hang from, so rotating it swings them about loc."""
+    e = bpy.data.objects.new(name, None)
+    e.location = loc
+    bpy.context.collection.objects.link(e)
+    bpy.context.view_layer.update()
+    for c in children:
+        c.parent = e
+        c.matrix_parent_inverse = e.matrix_world.inverted()
+    return e
+
+
 # ---------- models ----------
 # Each builder makes its model around the origin and returns the camera direction it is seen
 # from: (azimuth, elevation) in degrees, azimuth 0 = camera on -Y looking toward +Y.
@@ -75,6 +91,7 @@ def build_dragon():
     horn = material('DragonHorn', '#f3e3b5', rough=0.4)
     dark = material('Dark', '#1e2a1e', rough=0.3)
     white = material('Shine', '#ffffff', rough=0.2)
+    legs, wings = [], []
 
     # Side view with the head pointing -X, which the camera sees as screen-left, like the 🐉
     # emoji it replaces (the game mirrors it to face right).
@@ -90,27 +107,47 @@ def build_dragon():
         cone(f'Horn.{s}', (-0.78, 0.18 * s, 1.18), 0.09, 0.01, 0.38,
              (math.radians(-12 * s), math.radians(30), 0), horn)
         for lx in (-0.35, 0.6):
-            cylinder(f'Leg.{s}.{lx}', (lx, 0.25 * s, -0.48), 0.12, 0.34, (0, 0, 0), green, 0.04)
-            sphere(f'Foot.{s}.{lx}', (lx - 0.06, 0.25 * s, -0.66), (0.16, 0.12, 0.07), green, 16)
+            leg = cylinder(f'Leg.{s}.{lx}', (lx, 0.25 * s, -0.48), 0.12, 0.34, (0, 0, 0), green, 0.04)
+            foot = sphere(f'Foot.{s}.{lx}', (lx - 0.06, 0.25 * s, -0.66), (0.16, 0.12, 0.07), green, 16)
+            # diagonal gait: front-left steps with back-right
+            legs.append((pivot(f'Hip.{s}.{lx}', (lx, 0.25 * s, -0.3), [leg, foot]),
+                         0 if (s < 0) == (lx < 0) else math.pi))
     # wings, raised over the back
     for s, tint in ((-1, wing), (1, wing)):
-        flat_shape(f'Wing.{s}', [(x * 1.6, y * 1.6) for x, y in
-                                 [(0, 0), (0.55, 0.05), (0.95, 0.75), (0.55, 0.45), (0.35, 0.8),
-                                  (0.15, 0.4), (-0.1, 0.65)]], 0.05,
-                   (-0.2, 0.12 * s, 0.4), (math.radians(90 - 20 * s), 0, math.radians(-10)), tint)
+        w = flat_shape(f'Wing.{s}', [(x * 1.6, y * 1.6) for x, y in
+                                     [(0, 0), (0.55, 0.05), (0.95, 0.75), (0.55, 0.45), (0.35, 0.8),
+                                      (0.15, 0.4), (-0.1, 0.65)]], 0.05,
+                       (-0.2, 0.12 * s, 0.4), (math.radians(90 - 20 * s), 0, math.radians(-10)), tint)
+        wings.append((pivot(f'Shoulder.{s}', (-0.2, 0.12 * s, 0.4), [w]), s))
     # tail: a tapering chain of spheres curling up at the end
+    tail = []
     for i in range(10):
         t = i / 9
         r = 0.3 * (1 - t) + 0.08
-        sphere(f'Tail.{i}', (0.85 + t * 1.0, 0, -0.05 + t * t * 0.55), (r * 1.3, r, r), green, 16)
+        tail.append(sphere(f'Tail.{i}', (0.85 + t * 1.0, 0, -0.05 + t * t * 0.55), (r * 1.3, r, r), green, 16))
     # spade-shaped tail tip, flat in the XZ plane so it reads in profile
-    flat_shape('TailTip', [(0, 0), (0.22, 0.12), (0.12, 0.38), (0, 0.24), (-0.12, 0.38),
-                           (-0.22, 0.12)], 0.05, (1.86, 0.025, 0.5),
-               (math.radians(90), math.radians(35), 0), wing, sub=1)
+    tail.append(flat_shape('TailTip', [(0, 0), (0.22, 0.12), (0.12, 0.38), (0, 0.24), (-0.12, 0.38),
+                                       (-0.22, 0.12)], 0.05, (1.86, 0.025, 0.5),
+                           (math.radians(90), math.radians(35), 0), wing, sub=1))
+    tail_root = pivot('TailRoot', (0.85, 0, -0.05), tail)
     # back spikes
     for i, x in enumerate((-0.45, -0.15, 0.15, 0.45, 0.75)):
         cone(f'Spike.{i}', (x, 0, 0.56 - 0.06 * abs(x - 0.15)), 0.11, 0.0, 0.26, (0, 0, 0), horn,
              scale=(1, 0.5, 1), verts=4)
+
+    def pose(phase):
+        """Walk/flap pose at phase 0..2pi; None is the neutral standing pose."""
+        p = 0.0 if phase is None else phase
+        on = phase is not None
+        for hip, offset in legs:
+            hip.rotation_euler = (0, math.radians(28) * math.sin(p + offset) * on, 0)
+        for shoulder, side in wings:
+            # flap: the wings swing about the body's long axis, mirrored per side
+            shoulder.rotation_euler = (math.radians(30) * math.sin(p * 2) * side * on, 0, 0)
+        tail_root.rotation_euler = (0, math.radians(6) * math.sin(p + 1.0) * on, 0)
+        bpy.context.view_layer.update()
+
+    POSERS['dragon'] = pose
     return 0, 8
 
 
@@ -239,10 +276,40 @@ def build_tulip():
     return 0, 15
 
 
+def build_cloud(seed_value):
+    white = material('Cloud', '#ffffff', rough=0.9, sss=0.3)
+    rnd = random.Random(seed_value)
+    puffs = [(0, 0, 1.0)] + [(rnd.uniform(-1.4, 1.4), rnd.uniform(-0.4, 0.4), rnd.uniform(0.5, 0.8))
+                             for _ in range(5)]
+    for i, (x, y, r) in enumerate(puffs):
+        o = sphere(f'Puff.{i}', (x, y, r * 0.35 + rnd.uniform(-0.1, 0.15)), (r, r * 0.8, r * 0.75), white, 24)
+        # flatten the underside so the cloud floats on a level base
+        for v in o.data.vertices:
+            if v.co.z < -0.25:
+                v.co.z = -0.25
+    return 0, 6
+
+
+def build_grass(seed_value):
+    greens = [material(f'Grass.{i}', c, rough=0.6) for i, c in enumerate(('#4a8f3c', '#6cbf55', '#96db82'))]
+    rnd = random.Random(seed_value)
+    for i in range(rnd.randint(9, 13)):
+        x, y = rnd.uniform(-0.3, 0.3), rnd.uniform(-0.15, 0.15)
+        h = rnd.uniform(0.45, 1.0)
+        cone(f'Blade.{i}', (x, y, h / 2), 0.045, 0.0, h,
+             (rnd.uniform(-0.2, 0.2), math.copysign(rnd.uniform(0.05, 0.35), x), 0),
+             greens[rnd.randrange(3)], scale=(1, 0.35, 1), verts=6, sub=0)
+    return 0, 15
+
+
+POSERS = {}
+
 BUILDERS = {
     'dragon': build_dragon, 'burger': build_burger, 'coin': build_coin,
     'rock0': lambda: build_rock(1), 'rock1': lambda: build_rock(2), 'rock2': lambda: build_rock(5),
     'daisy': build_daisy, 'blossom': build_blossom, 'tulip': build_tulip,
+    'cloud0': lambda: build_cloud(1), 'cloud1': lambda: build_cloud(4), 'cloud2': lambda: build_cloud(9),
+    'grass0': lambda: build_grass(1), 'grass1': lambda: build_grass(2), 'grass2': lambda: build_grass(3),
 }
 
 
@@ -286,15 +353,23 @@ def add_lights(coll, view):
 
 def frame_camera(coll, azimuth, elevation):
     """Orthographic camera from the given direction, zoomed so the model's larger projected
-    side fills FILL of the frame, centred on it."""
+    side fills FILL of the frame, centred on it (over every pose, for an animated model, so
+    all its frames share one framing)."""
     az, el = math.radians(azimuth), math.radians(elevation)
     view = Vector((math.sin(az) * math.cos(el), math.cos(az) * math.cos(el), -math.sin(el)))
     rot = view.to_track_quat('-Z', 'Y')
     right = rot @ Vector((1, 0, 0))
     up = rot @ Vector((0, 1, 0))
-    bpy.context.view_layer.update()
-    pts = [o.matrix_world @ Vector(c) for o in coll.objects if o.type in ('MESH', 'CURVE')
-           for c in o.bound_box]
+    poser = POSERS.get(coll.name)
+    pts = []
+    for phase in ([None] + [i * math.tau / WALK_FRAMES for i in range(WALK_FRAMES)] if poser else [None]):
+        if poser:
+            poser(phase)
+        bpy.context.view_layer.update()
+        pts += [o.matrix_world @ Vector(c) for o in coll.objects if o.type in ('MESH', 'CURVE')
+                for c in o.bound_box]
+    if poser:
+        poser(None)
     xs = [p.dot(right) for p in pts]
     ys = [p.dot(up) for p in pts]
     cx, cy = (min(xs) + max(xs)) / 2, (min(ys) + max(ys)) / 2
@@ -325,7 +400,7 @@ def main():
     bpy.context.preferences.filepaths.save_version = 0
     bpy.ops.wm.save_as_mainfile(filepath=os.path.join(HERE, 'props.blend'))
 
-    sheet = Image.new('RGBA', (FRAME * len(PROPS), FRAME))
+    sheet = Image.new('RGBA', (FRAME * len(PROPS), FRAME * 2))
     with tempfile.TemporaryDirectory() as tmp:
         for i, name in enumerate(PROPS):
             for other, coll in colls.items():
@@ -336,6 +411,17 @@ def main():
             bpy.ops.render.render(write_still=True)
             sheet.paste(Image.open(path), (i * FRAME, 0))
             print('rendered', name, flush=True)
+        for coll in colls.values():
+            coll.hide_render = coll.name != 'dragon'
+        scene.camera = cams['dragon']
+        for i in range(WALK_FRAMES):
+            POSERS['dragon'](i * math.tau / WALK_FRAMES)
+            path = os.path.join(tmp, f'dragon_walk_{i}.png')
+            scene.render.filepath = path
+            bpy.ops.render.render(write_still=True)
+            sheet.paste(Image.open(path), (i * FRAME, FRAME))
+            print('rendered dragon walk', i, flush=True)
+        POSERS['dragon'](None)
     sheet.save(os.path.join(ROOT, 'props.png'), optimize=True)
 
 

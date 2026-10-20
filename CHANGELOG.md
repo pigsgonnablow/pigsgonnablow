@@ -21,7 +21,11 @@ flowers, each framed the same way so `drawProp(name, x, y, size)` can draw any o
 default 🐉 is now the rendered dragon (same left-facing profile, so mirroring, pitch and the
 red skin's color filter work unchanged); skins that swap in a different emoji keep their
 emoji. Ground, carried and thrown burgers (golden ones keep their filter and glow), coins,
-rocks and flowers all use the sheet. Effects (sparkles, leaves, clouds, birds) are unchanged.
+rocks and flowers all use the sheet, and so do the sky clouds and the grass tufts (three
+variants each). The dragon has a walk/flap cycle (row 1 of props.png, 8 frames posed in
+Blender by swinging the legs, wings and tail on pivots): it steps and flaps while moving, at a
+pace set by its speed, and stands still otherwise. Effects (sparkles, leaves, birds) are
+unchanged.
 Everything falls back to the old emoji/hand-drawn art until the sheet loads.
 
 ## 2026-10-07 -- a CrazyGames version of the game
