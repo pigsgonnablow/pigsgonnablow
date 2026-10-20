@@ -1,4 +1,4 @@
-const CACHE_NAME = 'burger-pig-v44';
+const CACHE_NAME = 'burger-pig-v45';
 const ASSETS = [
   './',
   './index.html',
@@ -8,6 +8,7 @@ const ASSETS = [
   './icon-192.png',
   './icon-512.png',
   './icon-512-maskable.png',
+  './pig.png',
   './js/vendor/supabase.js',
   './js/iso.js',
   './js/audio.js',

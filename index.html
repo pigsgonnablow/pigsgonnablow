@@ -241,7 +241,7 @@
   <div id="overlay">
     <!-- Which build this browser is running. Must match sw.js's CACHE_NAME version (a test checks),
          so a stale cached copy is easy to spot: compare this with the latest on GitHub. -->
-    <div id="appVersion" style="position:absolute; top:8px; left:10px; font-size:11px; color:rgba(255,255,255,0.45); font-family:Arial, sans-serif; pointer-events:none;">v44</div>
+    <div id="appVersion" style="position:absolute; top:8px; left:10px; font-size:11px; color:rgba(255,255,255,0.45); font-family:Arial, sans-serif; pointer-events:none;">v45</div>
     <div class="emoji-row">💥<span id="oinkBtn" title="tap for an oink!">🐷</span>💥 <span id="roarBtn" title="tap for a roar!">🐉</span></div>
     <h1>PIGS GONNA BLOW!</h1>
     <p style="color:#ffd23f; font-weight:900; letter-spacing:0.5px; margin-bottom:8px;">Cheeseburger Dragon vs. The Exploding Pig</p>
@@ -843,6 +843,13 @@ import { resolveInputDirection, screenInputToWorldMove, easedVelocity, easedPitc
     x: W/2, y: H*0.32, baseSize: 60, wobble:0, feedPunch:0,
     jumpStartX:0, jumpStartY:0, targetX:0, targetY:0, airHeight:0
   };
+
+  // Sprite sheet rendered from blender/pig.blend (see blender/make_pig.py): 256px frames,
+  // columns = mouth open level 0-5, rows = normal / about-to-blow (jumping). Until it loads
+  // (or if it fails to) drawSinglePig falls back to the hand-drawn pig.
+  const pigSprite = new Image();
+  pigSprite.src = 'pig.png';
+  const PIG_FRAME = 256, PIG_LEVELS = 6;
 
 
   // faceX: -1 = facing screen-left, 1 = facing screen-right. Kept separately from `facing`
@@ -1623,51 +1630,65 @@ import { resolveInputDirection, screenInputToWorldMove, easedVelocity, easedPitc
     ctx.scale(scale, scale);
     if (invuln>0 && pigState==='idle'){} // no-op
 
-    const bodyColor = pigState==='jumping' ? '#ff8fa3' : '#ffb5c2';
-    ctx.fillStyle = bodyColor;
-    ctx.beginPath();
-    ctx.ellipse(0,0, pig.baseSize, pig.baseSize*0.85, 0,0,Math.PI*2);
-    ctx.fill();
+    if (pigSprite.complete && pigSprite.naturalWidth){
+      // burgersToFull drops from 5 to 3 as the score climbs, so pick the frame by how full the
+      // pig is rather than by raw burger count -- it's always wide open on the last burger.
+      const col = Math.round(Math.min(feedProgress / burgersToFull, 1) * (PIG_LEVELS - 1));
+      const row = pigState==='jumping' ? 1 : 0;
+      // Sized so the body is about as wide as the hand-drawn one, with the feet just below
+      // the ground shadow's centre.
+      const size = pig.baseSize*2.9;
+      ctx.drawImage(pigSprite, col*PIG_FRAME, row*PIG_FRAME, PIG_FRAME, PIG_FRAME,
+                    -size/2, -pig.baseSize*1.75, size, size);
+    } else {
+      const bodyColor = pigState==='jumping' ? '#ff8fa3' : '#ffb5c2';
+      ctx.fillStyle = bodyColor;
+      ctx.beginPath();
+      ctx.ellipse(0,0, pig.baseSize, pig.baseSize*0.85, 0,0,Math.PI*2);
+      ctx.fill();
 
-    // ears
-    ctx.fillStyle = '#ff8fa3';
-    ctx.beginPath();
-    ctx.moveTo(-pig.baseSize*0.55,-pig.baseSize*0.65);
-    ctx.lineTo(-pig.baseSize*0.85,-pig.baseSize*1.05);
-    ctx.lineTo(-pig.baseSize*0.2,-pig.baseSize*0.85);
-    ctx.fill();
-    ctx.beginPath();
-    ctx.moveTo(pig.baseSize*0.55,-pig.baseSize*0.65);
-    ctx.lineTo(pig.baseSize*0.85,-pig.baseSize*1.05);
-    ctx.lineTo(pig.baseSize*0.2,-pig.baseSize*0.85);
-    ctx.fill();
+      // ears
+      ctx.fillStyle = '#ff8fa3';
+      ctx.beginPath();
+      ctx.moveTo(-pig.baseSize*0.55,-pig.baseSize*0.65);
+      ctx.lineTo(-pig.baseSize*0.85,-pig.baseSize*1.05);
+      ctx.lineTo(-pig.baseSize*0.2,-pig.baseSize*0.85);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(pig.baseSize*0.55,-pig.baseSize*0.65);
+      ctx.lineTo(pig.baseSize*0.85,-pig.baseSize*1.05);
+      ctx.lineTo(pig.baseSize*0.2,-pig.baseSize*0.85);
+      ctx.fill();
 
-    // eyes
-    ctx.fillStyle = '#3a2020';
-    ctx.beginPath(); ctx.arc(-pig.baseSize*0.32,-pig.baseSize*0.15, 6,0,Math.PI*2); ctx.fill();
-    ctx.beginPath(); ctx.arc(pig.baseSize*0.32,-pig.baseSize*0.15, 6,0,Math.PI*2); ctx.fill();
+      // eyes
+      ctx.fillStyle = '#3a2020';
+      ctx.beginPath(); ctx.arc(-pig.baseSize*0.32,-pig.baseSize*0.15, 6,0,Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.arc(pig.baseSize*0.32,-pig.baseSize*0.15, 6,0,Math.PI*2); ctx.fill();
 
-    // snout
-    ctx.fillStyle = '#ff9eb0';
-    ctx.beginPath();
-    ctx.ellipse(0, pig.baseSize*0.18, pig.baseSize*0.4, pig.baseSize*0.28, 0,0,Math.PI*2);
-    ctx.fill();
-    ctx.fillStyle = '#3a2020';
-    ctx.beginPath(); ctx.arc(-pig.baseSize*0.15, pig.baseSize*0.2, 3,0,Math.PI*2); ctx.fill();
-    ctx.beginPath(); ctx.arc(pig.baseSize*0.15, pig.baseSize*0.2, 3,0,Math.PI*2); ctx.fill();
+      // snout
+      ctx.fillStyle = '#ff9eb0';
+      ctx.beginPath();
+      ctx.ellipse(0, pig.baseSize*0.18, pig.baseSize*0.4, pig.baseSize*0.28, 0,0,Math.PI*2);
+      ctx.fill();
+      ctx.fillStyle = '#3a2020';
+      ctx.beginPath(); ctx.arc(-pig.baseSize*0.15, pig.baseSize*0.2, 3,0,Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.arc(pig.baseSize*0.15, pig.baseSize*0.2, 3,0,Math.PI*2); ctx.fill();
 
-    // mouth (open, gets bigger as fed)
-    ctx.fillStyle = '#7a1f2b';
-    const mouthW = pig.baseSize*0.35 + feedProgress*4;
-    const mouthH = pig.baseSize*0.18 + feedProgress*3;
-    ctx.beginPath();
-    ctx.ellipse(0, pig.baseSize*0.5, mouthW, mouthH, 0,0,Math.PI*2);
-    ctx.fill();
+      // mouth (open, gets bigger as fed)
+      ctx.fillStyle = '#7a1f2b';
+      const mouthW = pig.baseSize*0.35 + feedProgress*4;
+      const mouthH = pig.baseSize*0.18 + feedProgress*3;
+      ctx.beginPath();
+      ctx.ellipse(0, pig.baseSize*0.5, mouthW, mouthH, 0,0,Math.PI*2);
+      ctx.fill();
+
+    }
 
     ctx.restore();
 
-    // fullness bar, anchored above the pig's current (possibly airborne) screen position
-    const barW = 90, barX = scr.sx - barW/2, barY = scr.sy - pig.baseSize*1.5 - 10;
+    // fullness bar, anchored above the pig's current (possibly airborne) screen position and
+    // lifted as the pig puffs up, so its head doesn't grow into the bar
+    const barW = 90, barX = scr.sx - barW/2, barY = scr.sy - pig.baseSize*1.3*scale - 20;
     ctx.fillStyle = 'rgba(0,0,0,0.3)';
     ctx.fillRect(barX-2, barY-2, barW+4, 14);
     ctx.fillStyle = '#2ecc71';

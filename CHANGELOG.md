@@ -2,6 +2,17 @@
 
 Running log of notable changes, kept during dev sessions for reference.
 
+## 2026-10-20 -- a 3D-rendered pig
+
+The pig is now drawn from pig.png, a sprite sheet rendered in Blender from blender/pig.blend
+(rebuild it with `pip install bpy pillow` then `python blender/make_pig.py`). Six columns are
+the mouth opening wider as the pig fills up, picked by feedProgress/burgersToFull so it is wide
+open on the last burger whether the pig needs 5 or 3; the second row is the redder pig used
+while it's jumping. Until the image loads (or if it fails) the old hand-drawn pig is drawn
+instead. The fullness bar now rises as the pig puffs up so the bigger head doesn't cover it.
+pig.png is precached by the service worker and copied into the CrazyGames build. Service worker
+cache bumped to v45.
+
 ## 2026-10-07 -- a CrazyGames version of the game
 
 `node tools/build-crazygames.mjs` builds dist/crazygames/ (gitignored): a copy of index.html +
