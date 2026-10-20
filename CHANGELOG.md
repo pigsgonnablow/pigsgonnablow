@@ -24,7 +24,9 @@ emoji. Ground, carried and thrown burgers (golden ones keep their filter and glo
 rocks and flowers all use the sheet, and so do the sky clouds and the grass tufts (three
 variants each). The dragon has a walk/flap cycle (row 1 of props.png, 8 frames posed in
 Blender by swinging the legs, wings and tail on pivots): it steps and flaps while moving, at a
-pace set by its speed, and stands still otherwise. Effects (sparkles, leaves, birds) are
+pace set by its speed, and stands still otherwise. On touch screens (pointer: coarse) the
+dragon, burgers and coins are drawn 1.5x bigger, since the board is shrunk to fit a phone;
+their hit and pickup radii are unchanged. Effects (sparkles, leaves, birds) are
 unchanged.
 Everything falls back to the old emoji/hand-drawn art until the sheet loads.
 

@@ -743,6 +743,9 @@ import { resolveInputDirection, screenInputToWorldMove, easedVelocity, easedPitc
                         cloud0:9, cloud1:10, cloud2:11, grass0:12, grass1:13, grass2:14 };
   const DRAGON_WALK_ROW = 1, DRAGON_WALK_FRAMES = 8; // row 1: the dragon's walk/flap cycle
   const FLOWER_PROPS = { '🌼':'daisy', '🌸':'blossom', '🌷':'tulip' };
+  // On phones the whole board is shrunk to fit, which leaves the dragon, burgers and coins
+  // tiny, so draw those bigger on touch screens. Looks only: hit and pickup radii are unchanged.
+  const MOBILE_PROP_SCALE = (window.matchMedia && window.matchMedia('(pointer: coarse)').matches) ? 1.5 : 1;
   function propsReady(){ return propSprite.complete && propSprite.naturalWidth > 0; }
   // Draws a prop centred on (x, y) with its larger side `size` px across.
   function drawProp(name, x, y, size){
@@ -1873,7 +1876,7 @@ import { resolveInputDirection, screenInputToWorldMove, easedVelocity, easedPitc
   function drawDragonGlyph(){
     if (dragonEmoji === '🐉' && propsReady()){
       // Steps and flaps through the walk cycle while moving; stands still otherwise.
-      const size = dragon.size*2;
+      const size = dragon.size*2*MOBILE_PROP_SCALE;
       if (Math.hypot(dragon.vx, dragon.vy) > 0.3){
         const frame = Math.floor(dragon.walkPhase) % DRAGON_WALK_FRAMES;
         drawPropFrame(frame, DRAGON_WALK_ROW, 0, 0, size);
@@ -1889,6 +1892,7 @@ import { resolveInputDirection, screenInputToWorldMove, easedVelocity, easedPitc
   }
 
   function drawBurger(x, y, size){
+    size *= MOBILE_PROP_SCALE;
     if (propsReady()){
       drawProp('burger', x, y, size*1.3);
       return;
@@ -1949,7 +1953,7 @@ import { resolveInputDirection, screenInputToWorldMove, easedVelocity, easedPitc
     ctx.rotate(c.rot);
     ctx.scale(scale, scale);
     if (propsReady()){
-      drawProp('coin', 0, 0, 32);
+      drawProp('coin', 0, 0, 32*MOBILE_PROP_SCALE);
     } else {
       ctx.font = '28px serif';
       ctx.textAlign='center'; ctx.textBaseline='middle';
