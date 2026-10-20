@@ -2,6 +2,34 @@
 
 Running log of notable changes, kept during dev sessions for reference.
 
+## 2026-10-20 -- a 3D-rendered pig
+
+The pig is now drawn from pig.png, a sprite sheet rendered in Blender from blender/pig.blend
+(rebuild it with `pip install bpy pillow` then `python blender/make_pig.py`). Six columns are
+the mouth opening wider as the pig fills up, picked by feedProgress/burgersToFull so it is wide
+open on the last burger whether the pig needs 5 or 3; the second row is the redder pig used
+while it's jumping. A third row holds a soft shadow rendered in Blender on its own (a shadow
+catcher floor under a near-overhead sun), drawn on the ground under the hooves; it stays on the
+ground and fades while the pig jumps. Until the image loads (or if it fails) the old hand-drawn
+pig and its flat ellipse shadow are drawn instead. The fullness bar now rises as the pig puffs up so the bigger head doesn't cover it.
+pig.png is precached by the service worker and copied into the CrazyGames build. Service worker
+cache bumped to v45.
+
+The rest of the game's objects are Blender-rendered too: props.png, from blender/props.blend
+(`python blender/make_props.py`), holds the dragon, burger, coin, three rocks and the three
+flowers, each framed the same way so `drawProp(name, x, y, size)` can draw any of them. The
+default 🐉 is now the rendered dragon (same left-facing profile, so mirroring, pitch and the
+red skin's color filter work unchanged); skins that swap in a different emoji keep their
+emoji. Ground, carried and thrown burgers (golden ones keep their filter and glow), coins,
+rocks and flowers all use the sheet, and so do the sky clouds and the grass tufts (three
+variants each). The dragon has a walk/flap cycle (row 1 of props.png, 8 frames posed in
+Blender by swinging the legs, wings and tail on pivots): it steps and flaps while moving, at a
+pace set by its speed, and stands still otherwise. On touch screens (pointer: coarse) the
+dragon, burgers and coins are drawn 1.5x bigger, since the board is shrunk to fit a phone;
+their hit and pickup radii are unchanged. Effects (sparkles, leaves, birds) are
+unchanged.
+Everything falls back to the old emoji/hand-drawn art until the sheet loads.
+
 ## 2026-10-07 -- a CrazyGames version of the game
 
 `node tools/build-crazygames.mjs` builds dist/crazygames/ (gitignored): a copy of index.html +
