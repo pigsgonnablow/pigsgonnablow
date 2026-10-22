@@ -121,9 +121,9 @@ describe('the schema files', () => {
     await expect(db.exec(sqlOf('supabase_slime_dragon_skin.sql'))).resolves.not.toThrow();
   });
 
-  it('dragon-slime is seeded hidden until it has a Stripe price, with its slime-trail description', async () => {
+  it('dragon-slime is in the shop at $1.99 with its Stripe price and slime-trail description', async () => {
     const row = await one('select * from public.skins where id = $1', ['dragon-slime']);
-    expect(row).toMatchObject({ name: 'Slime Dragon', emoji: '🐉', price_cents: 199, stripe_price_id: null, active: false });
+    expect(row).toMatchObject({ name: 'Slime Dragon', emoji: '🐉', price_cents: 199, stripe_price_id: 'price_1UTTrhILXoyREvpyTqxfGVad', active: true });
     expect(row.description).toBe('Leaves a trail of slime wherever it goes.');
     expect(row.color_filter).toBeTruthy();
   });
