@@ -6,6 +6,8 @@
 // happens server-side, via the stripe-webhook Edge Function, after Stripe confirms payment.
 // Like leaderboard.js/auth.js, Supabase is an optional dependency: if it never loaded, the
 // shop just says so instead of breaking the game.
+import { applySkinIcon } from './skinicon.js';
+
 function escapeHtml(s){
   return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
@@ -77,7 +79,7 @@ export function createShop({ auth, elements, onCheckoutStart }){
           <div class="skinPrice">${owned ? 'Owned' : priceText}</div>
         </div>
       `;
-      if (skin.color_filter) card.querySelector('.skinEmoji').style.filter = skin.color_filter;
+      applySkinIcon(card.querySelector('.skinEmoji'), skin);
 
       const btn = document.createElement('button');
       if (owned){
