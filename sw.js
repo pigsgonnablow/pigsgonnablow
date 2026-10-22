@@ -1,4 +1,4 @@
-const CACHE_NAME = 'burger-pig-v45';
+const CACHE_NAME = 'burger-pig-v46';
 const ASSETS = [
   './',
   './index.html',
