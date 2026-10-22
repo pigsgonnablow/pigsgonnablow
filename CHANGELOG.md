@@ -2,6 +2,10 @@
 
 Running log of notable changes, kept during dev sessions for reference.
 
+## 2026-10-22 -- dragon skins in the menus use the Blender models
+
+- The Shop and My Skins cards now show the green and red dragon from props.png (new js/skinicon.js) instead of the 🐉 emoji. Cache v47.
+
 ## 2026-10-22 -- a 3D-rendered red dragon
 
 The Dragon - Red skin now has its own Blender model instead of a color filter over the green

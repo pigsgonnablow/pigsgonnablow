@@ -2,6 +2,8 @@
 // count as owned), and lets them equip one. Purchasing lives entirely in shop.js/the Shop
 // screen instead -- this module has no BUY path at all, only EQUIP, so a player picking an
 // avatar never has to wade through priced items they don't own yet.
+import { applySkinIcon } from './skinicon.js';
+
 function escapeHtml(s){
   return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
@@ -75,7 +77,7 @@ export function createMySkins({ auth, elements }){
           <div class="skinPrice">${equipped ? 'Equipped' : 'Owned'}</div>
         </div>
       `;
-      if (skin.color_filter) card.querySelector('.skinEmoji').style.filter = skin.color_filter;
+      applySkinIcon(card.querySelector('.skinEmoji'), skin);
 
       const btn = document.createElement('button');
       if (equipped){

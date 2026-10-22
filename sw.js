@@ -1,4 +1,4 @@
-const CACHE_NAME = 'burger-pig-v46';
+const CACHE_NAME = 'burger-pig-v47';
 const ASSETS = [
   './',
   './index.html',
@@ -17,6 +17,7 @@ const ASSETS = [
   './js/auth.js',
   './js/shop.js',
   './js/myskins.js',
+  './js/skinicon.js',
   './js/rules.js',
   './js/movement.js',
   './js/stats.js',
