@@ -200,7 +200,7 @@ describe("REGRESSION: leaving a game screen hides the in-game overlays (#warning
 
 describe('REGRESSION: the dragon-skin variables are declared BEFORE auth.onChange is registered', () => {
   // auth.onChange fires its callback synchronously during registration (see the matching test
-  // in auth.test.js), and that callback assigns these three. Declaring them after the
+  // in auth.test.js), and that callback assigns these. Declaring them after the
   // registration is a real temporal-dead-zone ReferenceError thrown from inside the startup
   // IIFE -- which once aborted the rest of the script and left every button on the page
   // (START, SHOP, LOGIN) dead, with nothing obvious in the console.
@@ -209,7 +209,7 @@ describe('REGRESSION: the dragon-skin variables are declared BEFORE auth.onChang
   it('auth.onChange is registered exactly once, and after the declarations', () => {
     expect(onChangeAt).toBeGreaterThan(0);
     expect(html.indexOf('auth.onChange(', onChangeAt + 1)).toBe(-1);
-    for (const decl of ['let dragonEmoji', 'let dragonFilter', 'let dragonIsRed']) {
+    for (const decl of ['let dragonEmoji', 'let dragonFilter', 'let dragonIsRed', 'let dragonIsSlime']) {
       const at = html.indexOf(decl);
       expect(at, decl).toBeGreaterThan(0);
       expect(at, decl).toBeLessThan(onChangeAt);

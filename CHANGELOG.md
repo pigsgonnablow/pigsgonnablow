@@ -2,6 +2,19 @@
 
 Running log of notable changes, kept during dev sessions for reference.
 
+## 2026-10-22 -- the Slime Dragon skin
+
+A new shop skin: a bright green Slime Dragon that leaves a slime trail on the ground wherever
+it goes, the slimy counterpart to Dragon - Red's ember trail. blender/make_props.py builds it from
+the same dragon builder with a lime palette, glossier skin and goo dripping off its chin and
+belly, as the `dragon_slime` prop (frame 16 of props.png) with its walk/flap cycle as row 3. In
+game it draws that model with a faint green glow, and while moving drops flat slime puddles that
+stay where they land and slowly fade. The Shop and My Skins cards show the same model.
+supabase_slime_dragon_skin.sql adds the `dragon-slime` catalog row ($1.99, with a description)
+inactive and without a Stripe price, since checkout refuses a skin with no price: create the
+Stripe Price, then set `stripe_price_id` and `active = true` on that row to list it. Service
+worker cache bumped to v48.
+
 ## 2026-10-22 -- dragon skins in the menus use the Blender models
 
 - The Shop and My Skins cards now show the green and red dragon from props.png (new js/skinicon.js) instead of the 🐉 emoji. Cache v47.

@@ -32,6 +32,7 @@ const SCHEMA_FILES = [
   'supabase_skin_descriptions_schema.sql',
   'supabase_stats_schema.sql',
   'supabase_stats_private.sql',
+  'supabase_slime_dragon_skin.sql',
 ];
 const sqlOf = (f) => readFileSync(resolve(ROOT, f), 'utf8');
 
@@ -114,6 +115,17 @@ describe('the schema files', () => {
     const { rows } = await db.query('select id, description from public.skins where id in ($1, $2)', ['dragon-red', 'dragon-default']);
     expect(rows.find((r) => r.id === 'dragon-red').description).toBe('Leaves a trail of embers while flying.');
     expect(rows.find((r) => r.id === 'dragon-default').description).toBeNull();
+  });
+
+  it('the slime-dragon file is safe to re-run', async () => {
+    await expect(db.exec(sqlOf('supabase_slime_dragon_skin.sql'))).resolves.not.toThrow();
+  });
+
+  it('dragon-slime is seeded hidden until it has a Stripe price, with its slime-trail description', async () => {
+    const row = await one('select * from public.skins where id = $1', ['dragon-slime']);
+    expect(row).toMatchObject({ name: 'Slime Dragon', emoji: '🐉', price_cents: 199, stripe_price_id: null, active: false });
+    expect(row.description).toBe('Leaves a trail of slime wherever it goes.');
+    expect(row.color_filter).toBeTruthy();
   });
 
   it('REGRESSION: on a fresh database the grants at the END of the lockdown file really land', async () => {

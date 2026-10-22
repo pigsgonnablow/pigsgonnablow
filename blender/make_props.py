@@ -1,4 +1,4 @@
-"""Builds the game's other models (dragon, red dragon, burger, coin, rocks, flowers) in Blender and
+"""Builds the game's other models (dragon, red and slime dragons, burger, coin, rocks, flowers) in Blender and
 renders them to one sprite sheet.
 
 Run with the Blender Python module (pip install bpy pillow):
@@ -11,7 +11,8 @@ Writes:
                          (FILL), centred, so the game can draw any of them at a given size the
                          same way. Row 1 is the dragon's walk/flap cycle (WALK_FRAMES frames),
                          framed exactly like its row-0 standing frame; row 2 is the same for
-                         the red dragon (the Dragon - Red skin).
+                         the red dragon (the Dragon - Red skin), and row 3 for the slime dragon
+                         (the Slime Dragon skin).
 """
 import math
 import os
@@ -29,10 +30,10 @@ FRAME = 256
 FILL = 0.9  # the model's larger side spans this share of the frame
 # Frame order in props.png; index.html's PROP_FRAMES must match.
 PROPS = ['dragon', 'burger', 'coin', 'rock0', 'rock1', 'rock2', 'daisy', 'blossom', 'tulip',
-         'cloud0', 'cloud1', 'cloud2', 'grass0', 'grass1', 'grass2', 'dragon_red']
+         'cloud0', 'cloud1', 'cloud2', 'grass0', 'grass1', 'grass2', 'dragon_red', 'dragon_slime']
 # Rows 1 and up of props.png: each animated dragon's walk/flap cycle, same framing as its
 # row-0 frame, in this order.
-WALK_ROWS = ['dragon', 'dragon_red']
+WALK_ROWS = ['dragon', 'dragon_red', 'dragon_slime']
 WALK_FRAMES = 8
 
 
@@ -92,12 +93,16 @@ DRAGON_COLORS = {
     'dragon': ('#4caf50', '#c8e27a', '#2e8b57', '#f3e3b5', '#1e2a1e'),
     # Dragon - Red skin: crimson scales, an ember-orange belly, dark wings and charcoal horns.
     'dragon_red': ('#d32f2f', '#ffb74d', '#8e1b1b', '#3a2a28', '#2a1210'),
+    # Slime Dragon skin: bright lime scales, a pale goo belly, deep green wings and yellow-green
+    # horns. Its skin is glossier than the others and it drips (see build_dragon).
+    'dragon_slime': ('#76e21b', '#d4ff7a', '#2f8f1a', '#c6e85a', '#123a0c'),
 }
 
 
 def build_dragon(name='dragon'):
     skin, belly_c, wing_c, horn_c, dark_c = DRAGON_COLORS[name]
-    green = material('DragonSkin', skin, rough=0.45, sss=0.05)
+    slimy = name == 'dragon_slime'
+    green = material('DragonSkin', skin, rough=0.12 if slimy else 0.45, sss=0.15 if slimy else 0.05)
     belly = material('DragonBelly', belly_c, rough=0.5)
     wing = material('DragonWing', wing_c, rough=0.5)
     horn = material('DragonHorn', horn_c, rough=0.4)
@@ -146,6 +151,14 @@ def build_dragon(name='dragon'):
     for i, x in enumerate((-0.45, -0.15, 0.15, 0.45, 0.75)):
         cone(f'Spike.{i}', (x, 0, 0.56 - 0.06 * abs(x - 0.15)), 0.11, 0.0, 0.26, (0, 0, 0), horn,
              scale=(1, 0.5, 1), verts=4)
+    if slimy:
+        # goo hanging off the chin and belly: a blob on the skin with a teardrop below it
+        goo = material('Goo', '#9cff3a', rough=0.05, sss=0.3)
+        for i, (x, y, z, h) in enumerate(((-1.3, 0, 0.42, 0.22), (-0.05, -0.2, -0.4, 0.2),
+                                          (0.3, 0.18, -0.42, 0.15), (-0.95, 0.25, 0.42, 0.14))):
+            sphere(f'GooBlob.{i}', (x, y, z), (0.14, 0.14, 0.08), goo, 16)
+            sphere(f'GooDrip.{i}', (x, y, z - h), (0.065, 0.065, h * 0.7), goo, 16)
+            sphere(f'GooDrop.{i}', (x, y, z - h * 1.6), (0.09, 0.09, 0.1), goo, 16)
 
     def pose(phase):
         """Walk/flap pose at phase 0..2pi; None is the neutral standing pose."""
@@ -323,6 +336,7 @@ BUILDERS = {
     'cloud0': lambda: build_cloud(1), 'cloud1': lambda: build_cloud(4), 'cloud2': lambda: build_cloud(9),
     'grass0': lambda: build_grass(1), 'grass1': lambda: build_grass(2), 'grass2': lambda: build_grass(3),
     'dragon_red': lambda: build_dragon('dragon_red'),
+    'dragon_slime': lambda: build_dragon('dragon_slime'),
 }
 
 
