@@ -2,6 +2,15 @@
 
 Running log of notable changes, kept during dev sessions for reference.
 
+## 2026-10-22 -- admin accounts own every skin
+
+supabase_admin_all_skins.sql adds a locked-down `public.admins` table (no client can read it or
+add itself to it; rows only come from the SQL editor) and an `is_admin()` RPC that answers for
+the caller only. equip_skin() skips the ownership check for an admin, so an admin can wear any
+active skin, including ones added later, with no Stripe purchase and no owned_skins rows (purchase
+stats stay real revenue). The Shop shows every skin as Owned for an admin and My Skins lists them
+all. Service worker cache bumped to v49.
+
 ## 2026-10-22 -- the Slime Dragon skin
 
 A new shop skin: a bright green Slime Dragon that leaves a slime trail on the ground wherever

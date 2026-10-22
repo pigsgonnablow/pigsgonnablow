@@ -33,6 +33,7 @@ const SCHEMA_FILES = [
   'supabase_stats_schema.sql',
   'supabase_stats_private.sql',
   'supabase_slime_dragon_skin.sql',
+  'supabase_admin_all_skins.sql',
 ];
 const sqlOf = (f) => readFileSync(resolve(ROOT, f), 'utf8');
 
@@ -361,6 +362,53 @@ describe('RPC behaviour', () => {
     it('the free default skin can always be re-equipped', async () => {
       expect((await call(U1, "select public.equip_skin('dragon-default')")).code).toBeUndefined();
       expect((await equipped(U1)).equipped_skin_id).toBe('dragon-default');
+    });
+  });
+
+  describe('admin accounts (supabase_admin_all_skins.sql)', () => {
+    const U5 = '55555555-5555-5555-5555-555555555555';
+    const equipped = async (uid) => (await one('select equipped_skin_id from public.profiles where user_id = $1', [uid]));
+
+    it('the admin file is safe to re-run', async () => {
+      await expect(db.exec(sqlOf('supabase_admin_all_skins.sql'))).resolves.not.toThrow();
+    });
+
+    it('a client cannot add itself to admins, or even read the list', async () => {
+      for (const role of ['anon', 'authenticated']) {
+        for (const priv of ['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'TRUNCATE']) {
+          const r = await one('select has_table_privilege($1, $2, $3) as has', [role, 'public.admins', priv]);
+          expect(r.has, `${role} ${priv}`).toBe(false);
+        }
+      }
+      const r = await call(U2, 'insert into public.admins (user_id) values ($1)', [U2]);
+      expect(r.code).toBe(INSUFFICIENT_PRIVILEGE);
+    });
+
+    it('is_admin() is false for a normal account and not callable by anon', async () => {
+      expect((await call(U2, 'select public.is_admin() as a')).rows[0].a).toBe(false);
+      expect((await as('anon', null, () => attempt('select public.is_admin()'))).code).toBe(INSUFFICIENT_PRIVILEGE);
+    });
+
+    it('an admin can equip any priced skin, including one added later, without owning it', async () => {
+      await db.query("insert into auth.users (id, email) values ($1, 'admin@example.test')", [U5]);
+      await call(U5, "select public.set_display_name('Admin')");
+      expect((await call(U5, "select public.equip_skin('dragon-red')")).message).toContain('skin not owned');
+
+      await db.query('insert into public.admins (user_id) values ($1)', [U5]);
+      expect((await call(U5, 'select public.is_admin() as a')).rows[0].a).toBe(true);
+      await db.query(`insert into public.skins (id, name, kind, emoji, price_cents, sort_order)
+                      values ('test-future', 'Future', 'color', 'F', 999, 99)`);
+      for (const id of ['dragon-red', 'dragon-slime', 'test-future']) {
+        expect((await call(U5, 'select public.equip_skin($1)', [id])).code, id).toBeUndefined();
+        expect((await equipped(U5)).equipped_skin_id).toBe(id);
+      }
+      expect((await one('select count(*)::int as n from public.owned_skins where user_id = $1', [U5])).n).toBe(0);
+      await db.query("update public.profiles set equipped_skin_id = 'dragon-default' where user_id = $1", [U5]);
+      await db.query("delete from public.skins where id = 'test-future'");
+    });
+
+    it('still refuses an inactive skin for an admin', async () => {
+      expect((await call(U5, "select public.equip_skin('griffin')")).message).toContain('unknown or inactive skin');
     });
   });
 

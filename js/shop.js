@@ -47,10 +47,16 @@ export function createShop({ auth, elements, onCheckoutStart }){
 
     const { session } = auth.getState();
     let ownedIds = new Set();
+    let isAdmin = false;
     if (session){
-      const { data: owned } = await sb.from('owned_skins').select('skin_id').eq('user_id', session.user.id).is('revoked_at', null);
+      // Admin accounts own everything (see myskins.js / supabase_admin_all_skins.sql).
+      const [{ data: owned }, { data: admin }] = await Promise.all([
+        sb.from('owned_skins').select('skin_id').eq('user_id', session.user.id).is('revoked_at', null),
+        sb.rpc('is_admin'),
+      ]);
       if (myGeneration !== renderGeneration) return;
       if (owned) ownedIds = new Set(owned.map(o => o.skin_id));
+      isAdmin = admin === true;
     }
 
     if (!session){
@@ -60,7 +66,7 @@ export function createShop({ auth, elements, onCheckoutStart }){
     listEl.innerHTML = '';
     for (const skin of skins){
       const free = skin.price_cents === 0;
-      const owned = free || ownedIds.has(skin.id);
+      const owned = free || isAdmin || ownedIds.has(skin.id);
 
       const card = document.createElement('div');
       card.className = 'skinCard';

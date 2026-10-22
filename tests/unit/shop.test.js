@@ -17,13 +17,14 @@ beforeEach(() => {
 });
 afterEach(() => vi.unstubAllGlobals());
 
-function build({ owned = [], session = SESSION, functions, onCheckoutStart } = {}) {
+function build({ owned = [], session = SESSION, functions, onCheckoutStart, rpc } = {}) {
   const fake = createFakeSupabase({
     tables: {
       skins: { select: { data: SKINS, error: null } },
       owned_skins: { select: { data: owned.map((skin_id) => ({ skin_id })), error: null } },
     },
     functions,
+    rpc,
   });
   const auth = { getClient: () => fake.client, getState: () => ({ session, profile: null }) };
   return { ...fake, shop: createShop({ auth, elements, onCheckoutStart }) };
@@ -57,6 +58,19 @@ describe('render', () => {
     expect(descOf(pig)).toBeNull();
     expect(descOf(dragon).textContent).toBe('Leaves a trail of embers while flying.');
     expect(descOf(unicorn)).toBeNull();
+  });
+
+  it('an admin account sees every skin as OWNED, with no BUY button anywhere', async () => {
+    const { shop } = build({ rpc: { is_admin: { data: true, error: null } } });
+    await shop.render();
+    expect(cards().map(priceOf)).toEqual(cards().map(() => 'Owned'));
+    expect(cards().every((c) => btnOf(c).disabled && btnOf(c).textContent === 'OWNED')).toBe(true);
+  });
+
+  it('a failed is_admin call is treated as not-admin', async () => {
+    const { shop } = build({ rpc: { is_admin: { data: null, error: { message: 'boom' } } } });
+    await shop.render();
+    expect(btnOf(cards()[2]).textContent).toBe('BUY');
   });
 
   it('signed out: BUY is disabled with a hint, and the owned-skins table is never queried', async () => {
