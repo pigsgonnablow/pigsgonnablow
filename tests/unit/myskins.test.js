@@ -44,6 +44,13 @@ describe('render', () => {
     expect(names).not.toContain('Unicorn');
   });
 
+  it('an admin account lists every active skin, owned or not', async () => {
+    const { ui } = build({ owned: [], rpc: { is_admin: { data: true, error: null } } });
+    await ui.render();
+    const names = [...elements.listEl.querySelectorAll('.skinName')].map((e) => e.textContent);
+    expect(names).toEqual(['Pig', 'Dragon', 'Unicorn']);
+  });
+
   it('marks the equipped skin and disables its button; others get EQUIP', async () => {
     const { ui } = build({ owned: ['dragon'], equipped: 'pig' });
     await ui.render();
@@ -95,7 +102,7 @@ describe('equip', () => {
     const skinQueriesBefore = log.queries.filter((q) => q.table === 'skins').length;
     buttons()[1].click(); // Dragon's EQUIP
     await flush();
-    expect(log.rpcs).toEqual([{ name: 'equip_skin', args: { p_skin_id: 'dragon' } }]);
+    expect(log.rpcs.filter((r) => r.name === 'equip_skin')).toEqual([{ name: 'equip_skin', args: { p_skin_id: 'dragon' } }]);
     expect(order).toEqual(['rpc', 'refresh']);
     expect(log.queries.filter((q) => q.table === 'skins').length).toBe(skinQueriesBefore + 1); // re-rendered
   });

@@ -53,12 +53,18 @@ export function createMySkins({ auth, elements }){
       return;
     }
 
-    const { data: owned } = await sb.from('owned_skins').select('skin_id').eq('user_id', session.user.id).is('revoked_at', null);
+    // An admin account (public.admins, supabase_admin_all_skins.sql) owns every skin without
+    // any owned_skins rows; equip_skin() checks the same flag server-side, so this only decides
+    // what's listed, never what's allowed.
+    const [{ data: owned }, { data: isAdmin }] = await Promise.all([
+      sb.from('owned_skins').select('skin_id').eq('user_id', session.user.id).is('revoked_at', null),
+      sb.rpc('is_admin'),
+    ]);
     if (myGeneration !== renderGeneration) return;
     const ownedIds = new Set((owned || []).map(o => o.skin_id));
     const equippedId = profile ? profile.equipped_skin_id : null;
 
-    const mySkins = skins.filter(s => s.price_cents === 0 || ownedIds.has(s.id));
+    const mySkins = skins.filter(s => isAdmin === true || s.price_cents === 0 || ownedIds.has(s.id));
 
     listEl.innerHTML = '';
     if (mySkins.length === 0){
