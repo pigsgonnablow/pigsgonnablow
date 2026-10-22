@@ -1,4 +1,4 @@
-"""Builds the game's other models (dragon, burger, coin, rocks, flowers) in Blender and
+"""Builds the game's other models (dragon, red dragon, burger, coin, rocks, flowers) in Blender and
 renders them to one sprite sheet.
 
 Run with the Blender Python module (pip install bpy pillow):
@@ -10,7 +10,8 @@ Writes:
                          order. Each model is framed to fill the same share of its frame
                          (FILL), centred, so the game can draw any of them at a given size the
                          same way. Row 1 is the dragon's walk/flap cycle (WALK_FRAMES frames),
-                         framed exactly like its row-0 standing frame.
+                         framed exactly like its row-0 standing frame; row 2 is the same for
+                         the red dragon (the Dragon - Red skin).
 """
 import math
 import os
@@ -28,8 +29,10 @@ FRAME = 256
 FILL = 0.9  # the model's larger side spans this share of the frame
 # Frame order in props.png; index.html's PROP_FRAMES must match.
 PROPS = ['dragon', 'burger', 'coin', 'rock0', 'rock1', 'rock2', 'daisy', 'blossom', 'tulip',
-         'cloud0', 'cloud1', 'cloud2', 'grass0', 'grass1', 'grass2']
-# Row 1 of props.png: the dragon's walk/flap cycle, same framing as its row-0 frame.
+         'cloud0', 'cloud1', 'cloud2', 'grass0', 'grass1', 'grass2', 'dragon_red']
+# Rows 1 and up of props.png: each animated dragon's walk/flap cycle, same framing as its
+# row-0 frame, in this order.
+WALK_ROWS = ['dragon', 'dragon_red']
 WALK_FRAMES = 8
 
 
@@ -84,12 +87,21 @@ def pivot(name, loc, children):
 # Each builder makes its model around the origin and returns the camera direction it is seen
 # from: (azimuth, elevation) in degrees, azimuth 0 = camera on -Y looking toward +Y.
 
-def build_dragon():
-    green = material('DragonSkin', '#4caf50', rough=0.45, sss=0.05)
-    belly = material('DragonBelly', '#c8e27a', rough=0.5)
-    wing = material('DragonWing', '#2e8b57', rough=0.5)
-    horn = material('DragonHorn', '#f3e3b5', rough=0.4)
-    dark = material('Dark', '#1e2a1e', rough=0.3)
+# Skin, belly, wing, horn/spike and eye colours of each dragon model.
+DRAGON_COLORS = {
+    'dragon': ('#4caf50', '#c8e27a', '#2e8b57', '#f3e3b5', '#1e2a1e'),
+    # Dragon - Red skin: crimson scales, an ember-orange belly, dark wings and charcoal horns.
+    'dragon_red': ('#d32f2f', '#ffb74d', '#8e1b1b', '#3a2a28', '#2a1210'),
+}
+
+
+def build_dragon(name='dragon'):
+    skin, belly_c, wing_c, horn_c, dark_c = DRAGON_COLORS[name]
+    green = material('DragonSkin', skin, rough=0.45, sss=0.05)
+    belly = material('DragonBelly', belly_c, rough=0.5)
+    wing = material('DragonWing', wing_c, rough=0.5)
+    horn = material('DragonHorn', horn_c, rough=0.4)
+    dark = material('Dark', dark_c, rough=0.3)
     white = material('Shine', '#ffffff', rough=0.2)
     legs, wings = [], []
 
@@ -147,7 +159,7 @@ def build_dragon():
         tail_root.rotation_euler = (0, math.radians(6) * math.sin(p + 1.0) * on, 0)
         bpy.context.view_layer.update()
 
-    POSERS['dragon'] = pose
+    POSERS[name] = pose
     return 0, 8
 
 
@@ -310,6 +322,7 @@ BUILDERS = {
     'daisy': build_daisy, 'blossom': build_blossom, 'tulip': build_tulip,
     'cloud0': lambda: build_cloud(1), 'cloud1': lambda: build_cloud(4), 'cloud2': lambda: build_cloud(9),
     'grass0': lambda: build_grass(1), 'grass1': lambda: build_grass(2), 'grass2': lambda: build_grass(3),
+    'dragon_red': lambda: build_dragon('dragon_red'),
 }
 
 
@@ -400,7 +413,7 @@ def main():
     bpy.context.preferences.filepaths.save_version = 0
     bpy.ops.wm.save_as_mainfile(filepath=os.path.join(HERE, 'props.blend'))
 
-    sheet = Image.new('RGBA', (FRAME * len(PROPS), FRAME * 2))
+    sheet = Image.new('RGBA', (FRAME * len(PROPS), FRAME * (1 + len(WALK_ROWS))))
     with tempfile.TemporaryDirectory() as tmp:
         for i, name in enumerate(PROPS):
             for other, coll in colls.items():
@@ -411,17 +424,18 @@ def main():
             bpy.ops.render.render(write_still=True)
             sheet.paste(Image.open(path), (i * FRAME, 0))
             print('rendered', name, flush=True)
-        for coll in colls.values():
-            coll.hide_render = coll.name != 'dragon'
-        scene.camera = cams['dragon']
-        for i in range(WALK_FRAMES):
-            POSERS['dragon'](i * math.tau / WALK_FRAMES)
-            path = os.path.join(tmp, f'dragon_walk_{i}.png')
-            scene.render.filepath = path
-            bpy.ops.render.render(write_still=True)
-            sheet.paste(Image.open(path), (i * FRAME, FRAME))
-            print('rendered dragon walk', i, flush=True)
-        POSERS['dragon'](None)
+        for row, name in enumerate(WALK_ROWS, 1):
+            for coll in colls.values():
+                coll.hide_render = coll.name != name
+            scene.camera = cams[name]
+            for i in range(WALK_FRAMES):
+                POSERS[name](i * math.tau / WALK_FRAMES)
+                path = os.path.join(tmp, f'{name}_walk_{i}.png')
+                scene.render.filepath = path
+                bpy.ops.render.render(write_still=True)
+                sheet.paste(Image.open(path), (i * FRAME, row * FRAME))
+                print('rendered', name, 'walk', i, flush=True)
+            POSERS[name](None)
     sheet.save(os.path.join(ROOT, 'props.png'), optimize=True)
 
 

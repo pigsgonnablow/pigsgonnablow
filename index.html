@@ -241,7 +241,7 @@
   <div id="overlay">
     <!-- Which build this browser is running. Must match sw.js's CACHE_NAME version (a test checks),
          so a stale cached copy is easy to spot: compare this with the latest on GitHub. -->
-    <div id="appVersion" style="position:absolute; top:8px; left:10px; font-size:11px; color:rgba(255,255,255,0.45); font-family:Arial, sans-serif; pointer-events:none;">v45</div>
+    <div id="appVersion" style="position:absolute; top:8px; left:10px; font-size:11px; color:rgba(255,255,255,0.45); font-family:Arial, sans-serif; pointer-events:none;">v46</div>
     <div class="emoji-row">💥<span id="oinkBtn" title="tap for an oink!">🐷</span>💥 <span id="roarBtn" title="tap for a roar!">🐉</span></div>
     <h1>PIGS GONNA BLOW!</h1>
     <p style="color:#ffd23f; font-weight:900; letter-spacing:0.5px; margin-bottom:8px;">Cheeseburger Dragon vs. The Exploding Pig</p>
@@ -740,8 +740,9 @@ import { resolveInputDirection, screenInputToWorldMove, easedVelocity, easedPitc
   propSprite.src = 'props.png';
   const PROP_FRAME = 256, PROP_FILL = 0.9;
   const PROP_FRAMES = { dragon:0, burger:1, coin:2, rock0:3, rock1:4, rock2:5, daisy:6, blossom:7, tulip:8,
-                        cloud0:9, cloud1:10, cloud2:11, grass0:12, grass1:13, grass2:14 };
-  const DRAGON_WALK_ROW = 1, DRAGON_WALK_FRAMES = 8; // row 1: the dragon's walk/flap cycle
+                        cloud0:9, cloud1:10, cloud2:11, grass0:12, grass1:13, grass2:14, dragon_red:15 };
+  // rows 1 and 2: the dragon's and the red dragon's walk/flap cycles
+  const DRAGON_WALK_ROW = 1, DRAGON_RED_WALK_ROW = 2, DRAGON_WALK_FRAMES = 8;
   const FLOWER_PROPS = { '🌼':'daisy', '🌸':'blossom', '🌷':'tulip' };
   // On phones the whole board is shrunk to fit, which leaves the dragon, burgers and coins
   // tiny, so draw those bigger on touch screens. Looks only: hit and pickup radii are unchanged.
@@ -1862,7 +1863,9 @@ import { resolveInputDirection, screenInputToWorldMove, easedVelocity, easedPitc
       ctx.scale(s, s);
     }
 
-    ctx.filter = dragonFilter; // 'none' or a recolor filter for skins that reuse this glyph -- see dragonFilter
+    // 'none' or a recolor filter for skins that reuse this glyph -- see dragonFilter. The red
+    // dragon has its own Blender model, so its filter only applies to the emoji fallback.
+    ctx.filter = (dragonIsRed && dragonEmoji === '🐉' && propsReady()) ? 'none' : dragonFilter;
     drawDragonGlyph();
     ctx.filter = 'none';
     ctx.restore();
@@ -1871,17 +1874,18 @@ import { resolveInputDirection, screenInputToWorldMove, easedVelocity, easedPitc
   }
 
   // The default 🐉 (and skins that recolor it with a filter) is the Blender dragon, which faces
-  // screen-left like the emoji so the mirroring and pitch above apply unchanged. Skins that
-  // swap in a different emoji keep drawing that emoji.
+  // screen-left like the emoji so the mirroring and pitch above apply unchanged. The Dragon - Red
+  // skin draws the red Blender dragon instead. Skins that swap in a different emoji keep drawing
+  // that emoji.
   function drawDragonGlyph(){
     if (dragonEmoji === '🐉' && propsReady()){
       // Steps and flaps through the walk cycle while moving; stands still otherwise.
       const size = dragon.size*2*MOBILE_PROP_SCALE;
       if (Math.hypot(dragon.vx, dragon.vy) > 0.3){
         const frame = Math.floor(dragon.walkPhase) % DRAGON_WALK_FRAMES;
-        drawPropFrame(frame, DRAGON_WALK_ROW, 0, 0, size);
+        drawPropFrame(frame, dragonIsRed ? DRAGON_RED_WALK_ROW : DRAGON_WALK_ROW, 0, 0, size);
       } else {
-        drawProp('dragon', 0, 0, size);
+        drawProp(dragonIsRed ? 'dragon_red' : 'dragon', 0, 0, size);
       }
       return;
     }

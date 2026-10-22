@@ -2,6 +2,16 @@
 
 Running log of notable changes, kept during dev sessions for reference.
 
+## 2026-10-22 -- a 3D-rendered red dragon
+
+The Dragon - Red skin now has its own Blender model instead of a color filter over the green
+one. blender/make_props.py builds it from the same dragon builder with a red palette
+(crimson scales, ember-orange belly, dark wings, charcoal horns) as the `dragon_red` prop
+(frame 15 of props.png), and renders its walk/flap cycle as row 2. In game the red skin draws
+that model, standing and walking, with no filter; its glow and ember trail are unchanged. The
+filter still applies to the emoji fallback before the sheet loads, and the shop/account menus
+still show the filtered emoji. Service worker cache bumped to v46.
+
 ## 2026-10-20 -- a 3D-rendered pig
 
 The pig is now drawn from pig.png, a sprite sheet rendered in Blender from blender/pig.blend
