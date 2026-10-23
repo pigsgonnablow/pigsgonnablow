@@ -20,6 +20,7 @@ import { fileURLToPath } from 'node:url';
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const OUT = resolve(ROOT, 'dist/crazygames');
 const SDK_URL = 'https://sdk.crazygames.com/crazygames-sdk-v3.js';
+const SITE = 'https://www.pigsgonnablow.com';
 
 // Each edit must match exactly once, so a change to index.html that moves one of these fails
 // the build loudly instead of shipping a half-converted page.
@@ -39,14 +40,20 @@ export function convertIndexHtml(html){
   out = replaceOnce(out, /<link rel="manifest" href="manifest.json">\n/, '', 'manifest link');
   // Nothing to submit to here, so the victory screen's second button just ends the run.
   out = replaceOnce(out, /FINISH &amp; SUBMIT/, 'FINISH', 'victory finish button label');
+  // CrazyGames requires an in-game Privacy Policy / Terms mention. The pages aren't in the zip,
+  // so link to the live site in a new tab instead of navigating the game frame away.
+  out = replaceOnce(out, /href="\.\/privacy\.html"/, `href="${SITE}/privacy.html" target="_blank" rel="noopener"`, 'privacy link');
+  out = replaceOnce(out, /href="\.\/terms\.html"/, `href="${SITE}/terms.html" target="_blank" rel="noopener"`, 'terms link');
   out = replaceOnce(out, /<\/head>/, `<script src="${SDK_URL}"></script>
 <style>
-  /* CrazyGames build: no accounts, shop, skins, leaderboard or outbound links. */
-  #viewLeaderboardBtn, #viewShopBtn, #viewMySkinsBtn, #accountBox, #privacyLinks,
+  /* CrazyGames build: no accounts, shop, skins or leaderboard. */
+  #viewLeaderboardBtn, #viewShopBtn, #viewMySkinsBtn, #accountBox,
   #scoreSubmitBox, #scoreSubmitStatus, #leaderboardBox { display:none !important; }
   /* CrazyGames tests at 800x450 and wants players one click from gameplay: drop the long story
      and level paragraphs so START fits on screen; the two control lines stay. */
   #overlay > p:nth-of-type(2), #overlay > p:nth-of-type(5) { display:none !important; }
+  /* Keep the required Privacy/Terms links on screen at 800x450 without pushing START down. */
+  #privacyLinks { position:fixed; right:10px; bottom:6px; margin:0 !important; z-index:5; }
 </style>
 </head>`, '</head>');
   return out;
