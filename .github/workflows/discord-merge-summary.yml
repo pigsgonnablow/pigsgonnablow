@@ -1,0 +1,89 @@
+name: discord merge summary
+
+# Posts a short dev summary to Discord whenever a PR is merged into main.
+# Needs a repo secret DISCORD_WEBHOOK_URL (Discord channel > Integrations > Webhooks).
+on:
+  pull_request_target:
+    types: [closed]
+    branches: [main]
+
+permissions:
+  pull-requests: read
+
+jobs:
+  notify:
+    # pull_request_target so fork PRs can see the secret; nothing from the PR is checked out
+    # or executed, and all PR text reaches the script through env vars, never ${{ }} in run.
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    steps:
+      - name: Post summary to Discord
+        env:
+          WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          AUTHOR: ${{ github.event.pull_request.user.login }}
+          AUTHOR_AVATAR: ${{ github.event.pull_request.user.avatar_url }}
+          MERGED_BY: ${{ github.event.pull_request.merged_by.login }}
+          MERGED_AT: ${{ github.event.pull_request.merged_at }}
+          ADDITIONS: ${{ github.event.pull_request.additions }}
+          DELETIONS: ${{ github.event.pull_request.deletions }}
+          CHANGED_FILES: ${{ github.event.pull_request.changed_files }}
+          COMMITS: ${{ github.event.pull_request.commits }}
+        run: |
+          if [ -z "$WEBHOOK" ]; then
+            echo "::warning::DISCORD_WEBHOOK_URL secret is not set; skipping Discord post."
+            exit 0
+          fi
+
+          # Summary: the PR description minus HTML comments and the generated-by footer, capped for Discord.
+          summary=$(printf '%s' "$PR_BODY" \
+            | perl -0pe 's/<!--.*?-->//gs; s/^\s*_Requested by .*$//mg; s/^.*Generated with \[Claude Code\].*$//mg; s/^https:\/\/claude\.ai\/code\/session_\S+\s*$//mg; s/\n{3,}/\n\n/g; s/^\s+|\s+$//g')
+          [ -z "$summary" ] && summary="_No description._"
+          if [ ${#summary} -gt 1500 ]; then
+            summary="${summary:0:1500}…"
+          fi
+
+          # Up to 10 changed files, so the channel can see what areas moved.
+          files=$(gh api "repos/$REPO/pulls/$PR_NUMBER/files?per_page=100" \
+            --jq '.[] | "`\(.filename)` (+\(.additions) / -\(.deletions))"' 2>/dev/null | head -n 10 || true)
+          if [ "$CHANGED_FILES" -gt 10 ] 2>/dev/null; then
+            files="$files"$'\n'"…and $((CHANGED_FILES - 10)) more"
+          fi
+          [ -z "$files" ] && files="_unavailable_"
+
+          payload=$(jq -n \
+            --arg title "#$PR_NUMBER $PR_TITLE" \
+            --arg url "$PR_URL" \
+            --arg summary "$summary" \
+            --arg author "$AUTHOR" \
+            --arg avatar "$AUTHOR_AVATAR" \
+            --arg merged_by "$MERGED_BY" \
+            --arg merged_at "$MERGED_AT" \
+            --arg stats "$COMMITS commit(s), $CHANGED_FILES file(s), +$ADDITIONS / -$DELETIONS" \
+            --arg files "$files" \
+            '{
+              username: "PigsGonnaBlow Dev",
+              allowed_mentions: { parse: [] },
+              embeds: [{
+                title: ($title | .[0:256]),
+                url: $url,
+                description: $summary,
+                color: 16738740,
+                author: { name: $author, icon_url: $avatar },
+                fields: [
+                  { name: "Changes", value: $stats, inline: true },
+                  { name: "Merged by", value: $merged_by, inline: true },
+                  { name: "Files", value: ($files | .[0:1024]) }
+                ],
+                timestamp: $merged_at,
+                footer: { text: "merged into main" }
+              }]
+            }')
+
+          curl -fsS -X POST -H "Content-Type: application/json" -d "$payload" "$WEBHOOK"
+          echo "Posted summary for #$PR_NUMBER to Discord."
