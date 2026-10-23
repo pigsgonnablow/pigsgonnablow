@@ -2,6 +2,14 @@
 
 Running log of notable changes, kept during dev sessions for reference.
 
+## 2026-10-23 -- merged PRs post to a Discord dev log
+
+.github/workflows/discord-merge-summary.yml runs when a PR is merged into main and posts the PR
+title plus the `## Dev log` section of its description (plain, non-technical sentences) to the
+Discord webhook in the `DISCORD_WEBHOOK_URL` repo secret. Without that section it posts just the
+title. No usernames, stats or file lists; mentions are disabled. If the secret isn't set the job
+logs a warning and passes. A PR template and CLAUDE.md ask for the Dev log section.
+
 ## 2026-10-23 -- the Slime Dragon throws slimy burgers
 
 With the Slime Dragon skin equipped, a thrown burger flies coated in goo: a green glow, a glob of
