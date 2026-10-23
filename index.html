@@ -241,7 +241,7 @@
   <div id="overlay">
     <!-- Which build this browser is running. Must match sw.js's CACHE_NAME version (a test checks),
          so a stale cached copy is easy to spot: compare this with the latest on GitHub. -->
-    <div id="appVersion" style="position:absolute; top:8px; left:10px; font-size:11px; color:rgba(255,255,255,0.45); font-family:Arial, sans-serif; pointer-events:none;">v49</div>
+    <div id="appVersion" style="position:absolute; top:8px; left:10px; font-size:11px; color:rgba(255,255,255,0.45); font-family:Arial, sans-serif; pointer-events:none;">v50</div>
     <div class="emoji-row">💥<span id="oinkBtn" title="tap for an oink!">🐷</span>💥 <span id="roarBtn" title="tap for a roar!">🐉</span></div>
     <h1>PIGS GONNA BLOW!</h1>
     <p style="color:#ffd23f; font-weight:900; letter-spacing:0.5px; margin-bottom:8px;">Cheeseburger Dragon vs. The Exploding Pig</p>
@@ -646,6 +646,7 @@ import { resolveInputDirection, screenInputToWorldMove, easedVelocity, easedPitc
   let dragonTrail = []; // recent dragon world-positions while gusting -- draws as a motion smear pointing upwind
   let dragonEmbers = []; // ember particles drifting off the dragon, only while the Dragon - Red skin is equipped
   let slimePuddles = []; // slime left on the ground behind the dragon, only while the Slime Dragon skin is equipped
+  let scorchMarks = []; // burnt grass left behind the dragon, only while the Dragon - Red skin is equipped
 
   let shockMaxRadius = SHOCK_RADIUS_BASE;
   let shockSpeed = SHOCK_SPEED_BASE;
@@ -1070,6 +1071,7 @@ import { resolveInputDirection, screenInputToWorldMove, easedVelocity, easedPitc
     dragonTrail = [];
     dragonEmbers = [];
     slimePuddles = [];
+    scorchMarks = [];
     windIndicatorEl.classList.add('hidden');
     jumpDuration = JUMP_DURATION_BASE;
     shockMaxRadius = SHOCK_RADIUS_BASE;
@@ -1151,6 +1153,18 @@ import { resolveInputDirection, screenInputToWorldMove, easedVelocity, easedPitc
     if (slimePuddles.length > 120) slimePuddles.shift();
   }
 
+  // One patch of burnt grass left under the Dragon - Red skin. Like the slime puddles it lies
+  // flat and stays put, but starts out glowing hot with little flames licking up off it, then
+  // cools to a black char that slowly fades -- so the ground visibly burns where the dragon flew.
+  function spawnScorchMark(){
+    scorchMarks.push({
+      x: dragon.x + rand(-5,5) - dragon.faceX*dragon.size*0.25, // behind the dragon, under its embers
+      y: dragon.y + rand(-5,5),
+      r: rand(6,10), life: 1, rot: rand(-0.4,0.4), flicker: rand(0, Math.PI*2)
+    });
+    if (scorchMarks.length > 120) scorchMarks.shift();
+  }
+
   // Leaf debris tumbling across the ground in the gust direction -- reads as "wind" far
   // more unmistakably than an abstract line or arrow does.
   function spawnWindLeaf(){
@@ -1213,7 +1227,8 @@ import { resolveInputDirection, screenInputToWorldMove, easedVelocity, easedPitc
     const speed = 11;
     burgerProjectiles.push({
       x: dragon.x, y: dragon.y, vx: Math.cos(angle)*speed, vy: Math.sin(angle)*speed,
-      rot: 0, life: 90, golden
+      rot: 0, life: 90, golden,
+      flaming: dragonIsRed // Dragon - Red's burgers leave its mouth charred and on fire
     });
     sfxThrow();
   }
@@ -1391,6 +1406,10 @@ import { resolveInputDirection, screenInputToWorldMove, easedVelocity, easedPitc
     if (dragonIsRed && Math.hypot(dragon.vx,dragon.vy) > 0.4 && Math.random() < 0.6*frameScale){
       spawnDragonEmber();
     }
+    // ...and the ground under it catches and burns a bit (see spawnScorchMark)
+    if (dragonIsRed && Math.hypot(dragon.vx,dragon.vy) > 0.4 && Math.random() < 0.35*frameScale){
+      spawnScorchMark();
+    }
     // Slime Dragon skin: the same gate, dropping slime on the ground instead.
     if (dragonIsSlime && Math.hypot(dragon.vx,dragon.vy) > 0.4 && Math.random() < 0.5*frameScale){
       spawnSlimePuddle();
@@ -1425,6 +1444,14 @@ import { resolveInputDirection, screenInputToWorldMove, easedVelocity, easedPitc
     for (let i=burgerProjectiles.length-1;i>=0;i--){
       const b = burgerProjectiles[i];
       b.x += b.vx*frameScale; b.y += b.vy*frameScale; b.rot += 0.3*frameScale; b.life -= frameScale;
+      // a flaming burger sheds embers as it flies, reusing the dragon's ember particles
+      if (b.flaming && Math.random() < 0.8*frameScale){
+        dragonEmbers.push({
+          x: b.x + rand(-4,4), y: b.y + rand(-4,4), z: rand(0,6),
+          vx: -b.vx*0.05 + rand(-0.2,0.2), vy: -b.vy*0.05 + rand(-0.2,0.2), vz: rand(0.4,0.8),
+          life: 1, size: rand(2.5,4.5)
+        });
+      }
       if (pigState === 'idle' && withinScreenRange(b.x,b.y,pig.x,pig.y, projectileFeedRadius(pig.baseSize, pigVisualScale()))){
         burgerProjectiles.splice(i,1);
         feedPigSuccess(b.golden);
@@ -1586,6 +1613,12 @@ import { resolveInputDirection, screenInputToWorldMove, easedVelocity, easedPitc
     for (let i=slimePuddles.length-1;i>=0;i--){
       slimePuddles[i].life -= 0.006*frameScale;
       if (slimePuddles[i].life <= 0) slimePuddles.splice(i,1);
+    }
+    // --- scorch marks (purely visual, see spawnScorchMark) ---
+    for (let i=scorchMarks.length-1;i>=0;i--){
+      scorchMarks[i].life -= 0.005*frameScale;
+      scorchMarks[i].flicker += 0.4*frameScale;
+      if (scorchMarks[i].life <= 0) scorchMarks.splice(i,1);
     }
 
     // --- spawn new ground burgers ---
@@ -2021,6 +2054,24 @@ import { resolveInputDirection, screenInputToWorldMove, easedVelocity, easedPitc
       ctx.shadowBlur = 14;
       ctx.filter = 'sepia(1) saturate(6) hue-rotate(-10deg) brightness(1.15)';
     }
+    if (b.flaming){
+      // fire wrapped around the burger: a hot glow, then flame tongues streaming back
+      // opposite its flight direction (screen space, so they trail it whichever way it's thrown)
+      const ahead = worldToScreen(b.x + b.vx, b.y + b.vy);
+      const back = Math.atan2(scr.sy - ahead.sy, scr.sx - ahead.sx);
+      const glow = ctx.createRadialGradient(scr.sx, scr.sy, 0, scr.sx, scr.sy, 26);
+      glow.addColorStop(0, 'rgba(255,170,40,0.6)');
+      glow.addColorStop(1, 'rgba(255,60,10,0)');
+      ctx.fillStyle = glow;
+      ctx.beginPath();
+      ctx.arc(scr.sx, scr.sy, 26, 0, Math.PI*2);
+      ctx.fill();
+      drawFlameTongues(scr.sx, scr.sy, back, 1.4, glowClock*12 + b.life);
+      // charred: darkened and burnt-brown, unless it's golden (keep the gold readable)
+      if (!b.golden) ctx.filter = 'sepia(0.6) brightness(0.55) contrast(1.3)';
+      ctx.shadowColor = '#ff7a1a';
+      ctx.shadowBlur = 12;
+    }
     ctx.translate(scr.sx, scr.sy);
     ctx.rotate(b.rot);
     drawBurger(0, 0, b.golden ? 32 : 28);
@@ -2104,6 +2155,59 @@ import { resolveInputDirection, screenInputToWorldMove, easedVelocity, easedPitc
       ctx.beginPath();
       ctx.arc(scr.sx, scr.sy, e.size*t, 0, Math.PI*2);
       ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  // A few teardrop flame tongues fanning out from (x,y) toward `angle`, flickering with
+  // `phase`; `scale` 1 is about burger-sized. Outer orange flame with a yellow core.
+  function drawFlameTongues(x, y, angle, scale, phase){
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(angle);
+    for (let i=0;i<3;i++){
+      const spread = (i-1)*0.45;
+      const len = (22 + Math.sin(phase + i*2.1)*6) * scale * (i === 1 ? 1.25 : 0.9);
+      const w = 8*scale;
+      for (const [color, k] of [['rgba(255,90,20,0.85)', 1], ['rgba(255,225,110,0.9)', 0.55]]){
+        ctx.save();
+        ctx.rotate(spread);
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.moveTo(0, -w*k);
+        ctx.quadraticCurveTo(len*0.6*k, -w*0.8*k, len*k, 0);
+        ctx.quadraticCurveTo(len*0.6*k, w*0.8*k, 0, w*k);
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+      }
+    }
+    ctx.restore();
+  }
+
+  // Burnt ground for the Dragon - Red skin (see spawnScorchMark): flat charred ellipses on the
+  // floor's iso angle. A fresh patch glows orange at its edge and has small flames flickering
+  // up off it; both die down quickly, leaving a black scorch that fades out slowly.
+  function drawScorchMarks(){
+    if (!scorchMarks.length) return;
+    ctx.save();
+    for (const m of scorchMarks){
+      const scr = worldToScreen(m.x, m.y);
+      const r = m.r*MOBILE_PROP_SCALE;
+      const heat = Math.max(0, (m.life - 0.7) / 0.3); // 1 when fresh, 0 once cooled
+      ctx.globalAlpha = Math.min(1, m.life*1.6)*0.75;
+      const char = ctx.createRadialGradient(scr.sx, scr.sy, 0, scr.sx, scr.sy, r*1.3);
+      char.addColorStop(0, 'rgba(25,15,10,0.95)');
+      char.addColorStop(0.7, 'rgba(60,35,20,0.8)');
+      char.addColorStop(1, heat > 0 ? `rgba(255,110,30,${0.8*heat})` : 'rgba(60,35,20,0)');
+      ctx.fillStyle = char;
+      ctx.beginPath();
+      ctx.ellipse(scr.sx, scr.sy, r*1.3, r*0.7, m.rot, 0, Math.PI*2);
+      ctx.fill();
+      if (heat > 0){
+        ctx.globalAlpha = heat;
+        drawFlameTongues(scr.sx, scr.sy, -Math.PI/2, 0.35 + 0.15*Math.sin(m.flicker), m.flicker);
+      }
     }
     ctx.restore();
   }
@@ -2200,6 +2304,7 @@ import { resolveInputDirection, screenInputToWorldMove, easedVelocity, easedPitc
     drawWindStreaks();
     drawWindSwooshes();
     drawSlimePuddles();
+    drawScorchMarks();
     drawDragonTrail();
     drawShockwave();
     if (pigState === 'jumping') drawLandingShadow();
