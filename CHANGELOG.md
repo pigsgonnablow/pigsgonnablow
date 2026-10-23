@@ -2,6 +2,13 @@
 
 Running log of notable changes, kept during dev sessions for reference.
 
+## 2026-10-23 -- the Slime Dragon throws slimy burgers
+
+With the Slime Dragon skin equipped, a thrown burger flies coated in goo: a green glow, a glob of
+slime with drips over the bun (drawBurgerSlime, matching the slime puddles' colors), a line of
+small slime puddles dripped along its flight path, and a green splat when it hits the pig. Purely
+visual; feeding and scoring are unchanged. Service worker cache bumped to v50.
+
 ## 2026-10-22 -- admin accounts own every skin
 
 supabase_admin_all_skins.sql adds a locked-down `public.admins` table (no client can read it or
