@@ -6,8 +6,8 @@ Running log of notable changes, kept during dev sessions for reference.
 
 .github/workflows/discord-merge-summary.yml runs when a PR is merged into main and posts an embed
 to the Discord webhook in the `DISCORD_WEBHOOK_URL` repo secret: PR title and link, the PR
-description (HTML comments and the generated-by footer stripped), author, who merged it, commit /
-file / line counts, and up to ten changed files. Mentions are disabled so a PR body can't ping
+description (HTML comments and the generated-by footer stripped), commit / file / line counts, and
+up to ten changed files. No GitHub usernames are posted. Mentions are disabled so a PR body can't ping
 @everyone. If the secret isn't set the job logs a warning and passes.
 
 ## 2026-10-23 -- the Slime Dragon throws slimy burgers
