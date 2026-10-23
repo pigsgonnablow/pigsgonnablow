@@ -2,6 +2,15 @@
 
 Running log of notable changes, kept during dev sessions for reference.
 
+## 2026-10-23 -- Dragon - Red burns the ground and throws flaming burgers
+
+More fire for the Dragon - Red skin. While it moves, the grass under its ember trail catches:
+flat scorch patches that start out glowing orange with small flames flickering off them, then
+cool to black char and slowly fade (spawnScorchMark/drawScorchMarks, the fiery counterpart to the
+Slime Dragon's puddles). A burger thrown while wearing it leaves charred and on fire: darkened
+and burnt-brown (golden burgers keep their gold), wrapped in a hot glow with flame tongues
+streaming behind it, shedding embers as it flies. Service worker cache bumped to v51.
+
 ## 2026-10-23 -- merged PRs post to a Discord dev log
 
 .github/workflows/discord-merge-summary.yml runs when a PR is merged into main and posts the PR
