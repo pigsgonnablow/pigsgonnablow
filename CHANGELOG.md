@@ -2,13 +2,13 @@
 
 Running log of notable changes, kept during dev sessions for reference.
 
-## 2026-10-23 -- merged PRs post a dev summary to Discord
+## 2026-10-23 -- merged PRs post to a Discord dev log
 
-.github/workflows/discord-merge-summary.yml runs when a PR is merged into main and posts an embed
-to the Discord webhook in the `DISCORD_WEBHOOK_URL` repo secret: PR title and link, the PR
-description (HTML comments and the generated-by footer stripped), commit / file / line counts, and
-up to ten changed files. No GitHub usernames are posted. Mentions are disabled so a PR body can't ping
-@everyone. If the secret isn't set the job logs a warning and passes.
+.github/workflows/discord-merge-summary.yml runs when a PR is merged into main and posts the PR
+title plus the `## Dev log` section of its description (plain, non-technical sentences) to the
+Discord webhook in the `DISCORD_WEBHOOK_URL` repo secret. Without that section it posts just the
+title. No usernames, stats or file lists; mentions are disabled. If the secret isn't set the job
+logs a warning and passes. A PR template and CLAUDE.md ask for the Dev log section.
 
 ## 2026-10-23 -- the Slime Dragon throws slimy burgers
 
