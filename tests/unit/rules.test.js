@@ -648,3 +648,61 @@ describe('wind gusts', () => {
     expect(R.GOLDEN_BURGER_LEVEL).toBe(3);
   });
 });
+
+describe('crows', () => {
+  const seq = (...v) => { let i = 0; return () => v[Math.min(i++, v.length - 1)]; };
+  const ok = { level: R.CROW_LEVEL, crowCount: 0, targetCount: 1, pigState: 'idle' };
+
+  it('no crows before the level gate, 1 up to the late level, 2 from then on', () => {
+    expect(R.maxCrowsFor(R.CROW_LEVEL - 1)).toBe(0);
+    expect(R.maxCrowsFor(R.CROW_LEVEL)).toBe(R.CROW_MAX_EARLY);
+    expect(R.maxCrowsFor(R.CROW_MAX_LATE_LEVEL - 1)).toBe(R.CROW_MAX_EARLY);
+    expect(R.maxCrowsFor(R.CROW_MAX_LATE_LEVEL)).toBe(R.CROW_MAX_LATE);
+    expect(R.maxCrowsFor(15)).toBe(R.CROW_MAX_LATE);
+  });
+
+  it('pinned pacing: level 4, 1 then 2 crows, 6..10 seconds apart', () => {
+    expect(R.CROW_LEVEL).toBe(4);
+    expect(R.CROW_MAX_EARLY).toBe(1);
+    expect(R.CROW_MAX_LATE).toBe(2);
+    expect(R.CROW_MAX_LATE_LEVEL).toBe(7);
+    expect(R.CROW_SPAWN_MIN_FRAMES).toBe(360);
+    expect(R.CROW_SPAWN_MAX_FRAMES).toBe(600);
+    expect(R.CROW_WARN_FRAMES).toBe(60);
+  });
+
+  it('can spawn only with a free slot, something to steal, and the pig not jumping', () => {
+    expect(R.crowsCanSpawn(ok)).toBe(true);
+    expect(R.crowsCanSpawn({ ...ok, level: R.CROW_LEVEL - 1 })).toBe(false);
+    expect(R.crowsCanSpawn({ ...ok, crowCount: R.CROW_MAX_EARLY })).toBe(false);
+    expect(R.crowsCanSpawn({ ...ok, level: R.CROW_MAX_LATE_LEVEL, crowCount: R.CROW_MAX_EARLY })).toBe(true);
+    expect(R.crowsCanSpawn({ ...ok, targetCount: 0 })).toBe(false);
+    expect(R.crowsCanSpawn({ ...ok, pigState: 'jumping' })).toBe(false);
+    for (const pigState of ['idle', 'exploding', 'cooldown']) expect(R.crowsCanSpawn({ ...ok, pigState })).toBe(true);
+  });
+
+  it('the spawn delay spans the 6..10s window', () => {
+    expect(R.nextCrowDelay(() => 0)).toBe(R.CROW_SPAWN_MIN_FRAMES);
+    expect(R.nextCrowDelay(() => 0.999999)).toBeLessThan(R.CROW_SPAWN_MAX_FRAMES);
+    expect(R.nextCrowDelay(() => 0.5)).toBe((R.CROW_SPAWN_MIN_FRAMES + R.CROW_SPAWN_MAX_FRAMES) / 2);
+  });
+
+  it('target choice prefers golden burgers, else picks any target', () => {
+    const coin = { id: 'coin' }, burger = { id: 'burger' }, gold = { id: 'gold', golden: true };
+    expect(R.pickCrowTarget([], () => 0)).toBe(null);
+    expect(R.pickCrowTarget([coin, burger, gold], () => 0)).toBe(gold);
+    expect(R.pickCrowTarget([coin, burger, gold], () => 0.999999)).toBe(gold);
+    expect(R.pickCrowTarget([coin, burger], seq(0))).toBe(coin);
+    expect(R.pickCrowTarget([coin, burger], seq(0.999999))).toBe(burger);
+  });
+
+  it('crows enter from outside the top, left or right of the field', () => {
+    const W = 600, H = 1000;
+    for (const r of [0, 0.2, 0.4, 0.6, 0.8, 0.999999]) {
+      const p = R.crowSpawnPoint(W, H, seq(r, 0.5));
+      const outside = p.y < 0 || p.x < 0 || p.x > W;
+      expect(outside).toBe(true);
+      expect(p.y).toBeLessThan(H);
+    }
+  });
+});

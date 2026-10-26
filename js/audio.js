@@ -93,6 +93,11 @@ export function sfxOink(){
   oinkBurst(0.16, 320, 190, 0.15);
 }
 
+export function sfxCaw(){
+  playTone({freq:620, freqEnd:380, duration:0.14, type:'sawtooth', volume:0.12});
+  playTone({freq:600, freqEnd:340, duration:0.16, type:'sawtooth', volume:0.1, delay:0.17});
+}
+
 export function sfxRoar(){
   if (!audioCtx) return;
   const t0 = audioCtx.currentTime;
