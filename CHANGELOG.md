@@ -6,12 +6,12 @@ Running log of notable changes, kept during dev sessions for reference.
 
 From level 6, the idle pig flings crinkle-cut pickle slices in a high arc at where the dragon is
 standing (small random offset). A shadow grows and darkens for ~1.2s before each lands. A direct
-hit costs no heart: it knocks the dragon back, makes it drop its burger and gives the usual
-invulnerability flash. Landings leave a pickle-juice puddle for ~5s that is slippery (the dragon
+hit costs a heart, slows the dragon 25% for ~3s, knocks it back, makes it drop its burger and
+gives the usual invulnerability flash. Landings leave a pickle-juice puddle for ~5s that is slippery (the dragon
 keeps sliding and steers slowly). One pickle every 4-6s on levels 6-9, volleys of 2-3 from level
 10; never while the pig is jumping, exploding or cooling down, and an explosion clears pickles in
 the air. Rules in js/rules.js (pickles section, tested in tests/unit/rules.test.js), thwip/splat
-sounds in js/audio.js, how-to-play text updated. Service worker cache bumped to v53.
+sounds in js/audio.js, how-to-play text updated. Service worker cache bumped to v54.
 
 ## 2026-10-26 -- Crows steal coins and burgers
 
