@@ -706,3 +706,65 @@ describe('crows', () => {
     }
   });
 });
+
+describe('pickles', () => {
+  const dragon = { x: 300, y: 400, size: 60 };
+
+  it('pinned pacing: level 6, volleys from 10, every 4..6s, ~1.2s flight, ~5s puddles', () => {
+    expect(R.PICKLE_LEVEL).toBe(6);
+    expect(R.PICKLE_VOLLEY_LEVEL).toBe(10);
+    expect(R.PICKLE_VOLLEY_MIN).toBe(2);
+    expect(R.PICKLE_VOLLEY_MAX).toBe(3);
+    expect(R.PICKLE_DELAY_MIN_FRAMES).toBe(240);
+    expect(R.PICKLE_DELAY_MAX_FRAMES).toBe(360);
+    expect(R.PICKLE_FLIGHT_FRAMES).toBe(72);
+    expect(R.PICKLE_PUDDLE_FRAMES).toBe(300);
+  });
+
+  it('only thrown from the level gate, and only while the pig is idle', () => {
+    expect(R.picklesCanThrow({ level: R.PICKLE_LEVEL, pigState: 'idle' })).toBe(true);
+    expect(R.picklesCanThrow({ level: R.PICKLE_LEVEL - 1, pigState: 'idle' })).toBe(false);
+    for (const pigState of ['jumping', 'exploding', 'cooldown']) {
+      expect(R.picklesCanThrow({ level: 12, pigState })).toBe(false);
+    }
+  });
+
+  it('the throw delay spans the 4..6s window', () => {
+    expect(R.nextPickleDelay(() => 0)).toBe(R.PICKLE_DELAY_MIN_FRAMES);
+    expect(R.nextPickleDelay(() => 0.999999)).toBeLessThan(R.PICKLE_DELAY_MAX_FRAMES);
+  });
+
+  it('single pickles before the volley level, then 2..3', () => {
+    for (const r of [0, 0.5, 0.999999]) expect(R.pickleVolleySize(R.PICKLE_VOLLEY_LEVEL - 1, () => r)).toBe(1);
+    expect(R.pickleVolleySize(R.PICKLE_VOLLEY_LEVEL, () => 0)).toBe(R.PICKLE_VOLLEY_MIN);
+    expect(R.pickleVolleySize(R.PICKLE_VOLLEY_LEVEL, () => 0.999999)).toBe(R.PICKLE_VOLLEY_MAX);
+  });
+
+  it('targets stay within the offset of the dragon and inside the field', () => {
+    for (const [a, b] of [[0, 0], [0.3, 1], [0.7, 0.5], [0.999, 0.999]]) {
+      const seq = [a, b]; let i = 0;
+      const t = R.pickleTarget(dragon, 800, 600, () => seq[i++ % 2]);
+      expect(Math.hypot(t.x - dragon.x, t.y - dragon.y)).toBeLessThanOrEqual(R.PICKLE_TARGET_OFFSET + 1e-9);
+    }
+    const t = R.pickleTarget({ x: 0, y: 0, size: 60 }, 800, 600, () => 0.75);
+    expect(t.x).toBeGreaterThanOrEqual(0);
+    expect(t.y).toBeGreaterThanOrEqual(0);
+  });
+
+  it('a hit needs the landing close to the dragon; knockback points away from the splat', () => {
+    expect(R.pickleHitsDragon({ x: 300, y: 400 }, dragon)).toBe(true);
+    expect(R.pickleHitsDragon({ x: 300 + 500, y: 400 }, dragon)).toBe(false);
+    const d = R.pickleKnockDir({ x: 200, y: 400 }, dragon);
+    expect(d.x).toBeCloseTo(1);
+    expect(d.y).toBeCloseTo(0);
+    expect(R.pickleKnockDir({ x: 300, y: 400 }, dragon)).toEqual({ x: 0, y: 1 });
+  });
+
+  it('puddles are slippery only near their centre', () => {
+    const puddles = [{ x: 300, y: 400 }];
+    expect(R.onPicklePuddle(dragon, puddles)).toBe(true);
+    expect(R.onPicklePuddle({ ...dragon, x: 300 + R.PICKLE_PUDDLE_RADIUS + 1 }, puddles)).toBe(false);
+    expect(R.onPicklePuddle(dragon, [])).toBe(false);
+    expect(R.PICKLE_SLIP_ACCEL).toBeLessThan(0.3);
+  });
+});

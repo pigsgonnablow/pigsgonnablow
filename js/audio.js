@@ -98,6 +98,15 @@ export function sfxCaw(){
   playTone({freq:600, freqEnd:340, duration:0.16, type:'sawtooth', volume:0.1, delay:0.17});
 }
 
+export function sfxThwip(){
+  playTone({freq:300, freqEnd:900, duration:0.12, type:'triangle', volume:0.1});
+}
+
+export function sfxSplat(){
+  playTone({freq:220, freqEnd:60, duration:0.18, type:'sawtooth', volume:0.12});
+  playTone({freq:480, freqEnd:140, duration:0.1, type:'square', volume:0.05});
+}
+
 export function sfxRoar(){
   if (!audioCtx) return;
   const t0 = audioCtx.currentTime;
