@@ -241,7 +241,7 @@
   <div id="overlay">
     <!-- Which build this browser is running. Must match sw.js's CACHE_NAME version (a test checks),
          so a stale cached copy is easy to spot: compare this with the latest on GitHub. -->
-    <div id="appVersion" style="position:absolute; top:8px; left:10px; font-size:11px; color:rgba(255,255,255,0.45); font-family:Arial, sans-serif; pointer-events:none;">v51</div>
+    <div id="appVersion" style="position:absolute; top:8px; left:10px; font-size:11px; color:rgba(255,255,255,0.45); font-family:Arial, sans-serif; pointer-events:none;">v52</div>
     <div class="emoji-row">💥<span id="oinkBtn" title="tap for an oink!">🐷</span>💥 <span id="roarBtn" title="tap for a roar!">🐉</span></div>
     <h1>PIGS GONNA BLOW!</h1>
     <p style="color:#ffd23f; font-weight:900; letter-spacing:0.5px; margin-bottom:8px;">Cheeseburger Dragon vs. The Exploding Pig</p>
@@ -251,6 +251,8 @@
     <p>📈 Survive 15 escalating <b>LEVELS</b> to clear the farm. Watch for golden burgers (double
       feed value) from level 3, and wind gusts that shove the dragon around from level 5 —
       the pig gets faster and meaner every level after that.</p>
+    <p>🐦‍⬛ From level 4, <b>crows</b> swoop in to steal coins and burgers (golden ones first!). Watch for the
+      shadow, then touch a crow to scare it off and make it drop its loot.</p>
     <button id="startBtn">START</button>
     <div style="display:flex; gap:10px; margin-top:10px; flex-wrap:wrap; justify-content:center;">
       <button id="viewLeaderboardBtn" style="width:190px; text-align:center; padding:10px 12px; font-size:14px; font-weight:900; background:transparent; color:#ffd23f; border:2px solid #ffd23f; border-radius:50px; cursor:pointer; font-family: Arial Black, Arial, sans-serif;">🏆 LEADERBOARD</button>
@@ -387,7 +389,7 @@
 import { createIsoProjection } from './js/iso.js';
 import {
   ensureAudio, sfxFeed, sfxThrow, sfxJump, sfxExplosion,
-  sfxCoin, sfxHit, sfxBonus, sfxGameOver, sfxOink, sfxRoar
+  sfxCoin, sfxHit, sfxBonus, sfxGameOver, sfxOink, sfxRoar, sfxCaw
 } from './js/audio.js';
 import { createLeaderboard } from './js/leaderboard.js';
 import { createAuth } from './js/auth.js';
@@ -404,7 +406,9 @@ import {
   pickBurgerSpot, rollGolden, shouldSpawnBurger, nextSpawnDelay, createWindGusts,
   createCoinBatches, levelFor, isVictory, dragonSizeFor, shockParamsFor, coinLifeFramesFor, jumpDurationFor,
   burgersToFullFor, coinCountFor, feedReward, formatTime, angleToArrow,
-  pickupRadius, meleeFeedRadius, projectileFeedRadius
+  pickupRadius, meleeFeedRadius, projectileFeedRadius,
+  CROW_WARN_FRAMES, CROW_FLY_FRAMES, CROW_SCARE_SCORE, SHOCK_HIT_BAND,
+  crowsCanSpawn, nextCrowDelay, pickCrowTarget, crowSpawnPoint
 } from './js/rules.js';
 import { resolveInputDirection, screenInputToWorldMove, easedVelocity, easedPitch, clampToWorld, clampJoystickVector, bottomAnchoredTop } from './js/movement.js';
 
@@ -646,6 +650,8 @@ import { resolveInputDirection, screenInputToWorldMove, easedVelocity, easedPitc
   let dragonTrail = []; // recent dragon world-positions while gusting -- draws as a motion smear pointing upwind
   let dragonEmbers = []; // ember particles drifting off the dragon, only while the Dragon - Red skin is equipped
   let slimePuddles = []; // slime left on the ground behind the dragon, only while the Slime Dragon skin is equipped
+  let crows = []; // thieves from CROW_LEVEL on, see updateCrows
+  let crowTimer = 0; // frames until the next crow may show up
   let scorchMarks = []; // burnt grass left behind the dragon, only while the Dragon - Red skin is equipped
 
   let shockMaxRadius = SHOCK_RADIUS_BASE;
@@ -1072,6 +1078,8 @@ import { resolveInputDirection, screenInputToWorldMove, easedVelocity, easedPitc
     dragonEmbers = [];
     slimePuddles = [];
     scorchMarks = [];
+    crows = [];
+    crowTimer = nextCrowDelay(Math.random);
     windIndicatorEl.classList.add('hidden');
     jumpDuration = JUMP_DURATION_BASE;
     shockMaxRadius = SHOCK_RADIUS_BASE;
@@ -1551,7 +1559,8 @@ import { resolveInputDirection, screenInputToWorldMove, easedVelocity, easedPitc
         sfxCoin();
 
         // clean sweep of an explosion's whole coin batch before any expired = bonus heart
-        if (coinBatches.collect(c.batchId) && lives < MAX_LIVES){
+        if (c.missed){ coinBatches.expire(c.batchId); }
+        else if (coinBatches.collect(c.batchId) && lives < MAX_LIVES){
           lives++;
           updateHud();
           sfxBonus();
@@ -1633,9 +1642,112 @@ import { resolveInputDirection, screenInputToWorldMove, easedVelocity, easedPitc
       spawnTimer = nextSpawnDelay(Math.random);
     }
 
+    updateCrows(frameScale);
+
     updateClouds(frameScale);
     updateBirds(frameScale);
     updateMotes(frameScale);
+  }
+
+  // ---------- crows ----------
+  // A crow flies in from outside the field to a coin or ground burger (shadow grows on the
+  // target for the last CROW_WARN_FRAMES), grabs it and flies off. Touching the dragon or the
+  // shockwave scares it off: it drops its loot where it is. Rules live in js/rules.js.
+  function crowTargets(){
+    const taken = new Set(crows.map(c => c.target));
+    return [
+      ...coinDrops.filter(c => c.landed && !taken.has(c)).map(c => ({ ref:c, kind:'coin', golden:false })),
+      ...groundBurgers.filter(b => !taken.has(b)).map(b => ({ ref:b, kind:'burger', golden:!!b.golden }))
+    ];
+  }
+  function startCrowLeave(c){
+    c.state = 'leave';
+    c.age = 0;
+    const ax = c.x - W/2, ay = c.y - H/2;
+    const len = Math.hypot(ax, ay) || 1;
+    c.vx = ax/len*5; c.vy = ay/len*5;
+  }
+  function scareCrow(c){
+    if (c.loot){
+      if (c.loot.kind === 'coin'){
+        const coin = c.loot.ref;
+        coin.x = Math.max(30, Math.min(W-30, c.x));
+        coin.y = Math.max(H*0.42, Math.min(H-40, c.y));
+        coin.landed = true;
+        coin.lifeFrames = coinLifeFrames;
+        coinDrops.push(coin);
+      } else {
+        const b = c.loot.ref;
+        b.x = Math.max(30, Math.min(W-30, c.x));
+        b.y = Math.max(H*0.42, Math.min(H-40, c.y));
+        groundBurgers.push(b);
+      }
+      score += CROW_SCARE_SCORE;
+      updateHud();
+      spawnBurst(c.x, c.y, '#ffffff', 10);
+      c.loot = null;
+    }
+    c.scared = true;
+    startCrowLeave(c);
+    sfxCaw();
+  }
+  function updateCrows(frameScale){
+    // spawn: the countdown only runs while a crow could actually show up
+    const targets = crowTargets();
+    if (crowsCanSpawn({ level, crowCount: crows.length, targetCount: targets.length, pigState })){
+      crowTimer -= frameScale;
+      if (crowTimer <= 0){
+        const t = pickCrowTarget(targets, Math.random);
+        const from = crowSpawnPoint(W, H, Math.random);
+        crows.push({ state:'in', x:from.x, y:from.y, sx:from.x, sy:from.y, z:120, t:0,
+                     target:t.ref, targetKind:t.kind, flap:Math.random()*Math.PI*2,
+                     loot:null, scared:false, vx:0, vy:0, age:0 });
+        crowTimer = nextCrowDelay(Math.random);
+        sfxCaw();
+      }
+    }
+    for (let i=crows.length-1;i>=0;i--){
+      const c = crows[i];
+      c.flap += 0.5*frameScale;
+      if (c.state === 'in'){
+        const stillThere = c.targetKind === 'coin' ? coinDrops.includes(c.target) : groundBurgers.includes(c.target);
+        if (!stillThere){ startCrowLeave(c); }
+        else {
+          c.t = Math.min(c.t + frameScale/CROW_FLY_FRAMES, 1);
+          const e = c.t;
+          c.x = c.sx + (c.target.x - c.sx)*e;
+          c.y = c.sy + (c.target.y - c.sy)*e;
+          c.z = 120*(1 - e);
+          if (c.t >= 1){
+            // grab it: coins stolen mid-batch count as missed for the clean sweep
+            if (c.targetKind === 'coin'){
+              coinDrops.splice(coinDrops.indexOf(c.target), 1);
+              c.target.missed = true;
+            } else {
+              groundBurgers.splice(groundBurgers.indexOf(c.target), 1);
+            }
+            c.loot = { kind:c.targetKind, ref:c.target };
+            startCrowLeave(c);
+          }
+        }
+      } else {
+        c.age += frameScale;
+        c.x += c.vx*frameScale; c.y += c.vy*frameScale;
+        c.z = Math.min(c.z + 2*frameScale, 160);
+        if (c.age > 120){
+          crows.splice(i,1);
+          continue;
+        }
+      }
+      if (c.scared) continue;
+      // scared by the dragon (never hurts it) or by the shockwave ring
+      let spooked = dist(dragon.x, dragon.y, c.x, c.y) < dragon.size*0.5 + 24;
+      if (!spooked && shockActive){
+        const d = dist(pig.x, pig.y, c.x, c.y);
+        spooked = d < shockRadius + 20 && d > shockRadius - SHOCK_HIT_BAND;
+      }
+      if (spooked) scareCrow(c);
+    }
   }
 
   // ---------- drawing ----------
@@ -2017,6 +2129,63 @@ import { resolveInputDirection, screenInputToWorldMove, easedVelocity, easedPitc
     ctx.restore();
   }
 
+  function drawSingleCrow(c){
+    const scr = worldToScreen(c.x, c.y, c.z + 10);
+    const gnd = worldToScreen(c.x, c.y);
+    const wing = Math.sin(c.flap);
+    const fx = c.state === 'leave' ? Math.sign(c.vx) || 1 : Math.sign(c.target.x - c.sx) || 1;
+    ctx.save();
+    // ground shadow, fainter the higher it flies
+    ctx.fillStyle = 'rgba(0,0,0,' + (0.3 - Math.min(c.z, 120)/500) + ')';
+    ctx.beginPath();
+    ctx.ellipse(gnd.sx, gnd.sy, 13, 5, 0, 0, Math.PI*2);
+    ctx.fill();
+    ctx.translate(scr.sx, scr.sy);
+    ctx.scale(fx, 1);
+    // loot hangs from its feet
+    if (c.loot){
+      if (c.loot.kind === 'coin'){
+        ctx.font = '18px serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
+        ctx.fillText('🪙', 0, 20);
+      } else {
+        drawBurger(0, 20, c.loot.ref.golden ? 28 : 22);
+      }
+    }
+    // wings (behind and in front of the body, flapping)
+    ctx.fillStyle = '#1b1b24';
+    for (const side of [-1, 1]){
+      ctx.beginPath();
+      ctx.moveTo(-4, -2);
+      ctx.quadraticCurveTo(-4 + side*8, -16*wing - 4, -4 + side*24, -12*wing + 2);
+      ctx.quadraticCurveTo(-4 + side*12, -2*wing + 4, 4, 2);
+      ctx.closePath();
+      ctx.fill();
+    }
+    // body, head and beak
+    ctx.beginPath(); ctx.ellipse(0, 2, 12, 7, 0, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(11, -3, 5.5, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(15, -5); ctx.lineTo(23, -2); ctx.lineTo(15, -1); ctx.closePath();
+    ctx.fillStyle = '#f2a33a'; ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.beginPath(); ctx.arc(12.5, -4.5, 1.3, 0, Math.PI*2); ctx.fill();
+    ctx.restore();
+  }
+
+  // growing shadow on the thing a crow is about to take
+  function drawCrowWarning(c){
+    if (c.state !== 'in') return;
+    const warn = CROW_WARN_FRAMES/CROW_FLY_FRAMES;
+    if (c.t < 1 - warn) return;
+    const p = Math.min((c.t - (1 - warn))/warn, 1);
+    const scr = worldToScreen(c.target.x, c.target.y);
+    ctx.save();
+    ctx.fillStyle = 'rgba(0,0,0,' + (0.2 + p*0.35) + ')';
+    ctx.beginPath();
+    ctx.ellipse(scr.sx, scr.sy + 6, 8 + p*22, 3 + p*9, 0, 0, Math.PI*2);
+    ctx.fill();
+    ctx.restore();
+  }
+
   function drawSingleCoin(c){
     const scr = worldToScreen(c.x, c.y);
     ctx.save();
@@ -2347,6 +2516,7 @@ import { resolveInputDirection, screenInputToWorldMove, easedVelocity, easedPitc
     drawDragonTrail();
     drawShockwave();
     if (pigState === 'jumping') drawLandingShadow();
+    for (const c of crows) drawCrowWarning(c);
 
     // depth-sort so entities further "back" on the iso plane are occluded correctly
     const depthList = [];
@@ -2354,6 +2524,7 @@ import { resolveInputDirection, screenInputToWorldMove, easedVelocity, easedPitc
     depthList.push({ depth: dragon.x + dragon.y, run: drawSingleDragon });
     for (const b of groundBurgers) depthList.push({ depth: b.x + b.y, run: () => drawSingleGroundBurger(b) });
     for (const c of coinDrops) depthList.push({ depth: c.x + c.y, run: () => drawSingleCoin(c) });
+    for (const c of crows) depthList.push({ depth: c.x + c.y + 40, run: () => drawSingleCrow(c) });
     for (const b of burgerProjectiles) depthList.push({ depth: b.x + b.y, run: () => drawSingleBurgerProjectile(b) });
     depthList.sort((a,b) => a.depth - b.depth);
     for (const item of depthList) item.run();

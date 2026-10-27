@@ -2,6 +2,18 @@
 
 Running log of notable changes, kept during dev sessions for reference.
 
+## 2026-10-26 -- Crows steal coins and burgers
+
+From level 4, crows swoop in from outside the field, land on a landed coin or ground burger
+(golden burgers first) and fly off with it. A shadow grows on the target for ~1s before the grab.
+Touching a crow, or the shockwave, scares it off and it drops its loot (coins get a fresh timer,
+burgers go back on the ground, small score bonus); a stolen coin counts as missed for the
+clean-sweep heart. At most 1 crow on levels 4-6, 2 from level 7, one every 6-10s while there is
+something to steal and the pig isn't mid-jump. Rules and tuning in js/rules.js (crows section,
+tested in tests/unit/rules.test.js), caw sound in js/audio.js, how-to-play text updated. The crow is
+drawn procedurally on the canvas (flapping wings, ground shadow, depth-sorted). Service worker
+cache bumped to v52.
+
 ## 2026-10-23 -- Dragon - Red burns the ground and throws flaming burgers
 
 More fire for the Dragon - Red skin. While it moves, the grass under its ember trail catches:

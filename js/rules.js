@@ -20,6 +20,16 @@ export const LEVEL_WIN = 15;            // clear this many explosions to see the
 export const GOLDEN_BURGER_LEVEL = 3;   // golden burgers start appearing
 export const WIND_GUST_LEVEL = 5;       // wind gusts start
 export const GUST_STRENGTH = 1.8;       // px/frame at 60fps -- noticeable against the dragon's 4.2 move speed, not overpowering
+export const CROW_LEVEL = 4;            // crows start swooping in
+export const CROW_MAX_EARLY = 1;        // at most this many crows at once from CROW_LEVEL...
+export const CROW_MAX_LATE_LEVEL = 7;   // ...until this level...
+export const CROW_MAX_LATE = 2;         // ...then this many
+export const CROW_SPAWN_MIN_FRAMES = 360;   // a new crow every 6..10s at 60fps
+export const CROW_SPAWN_MAX_FRAMES = 600;
+export const CROW_WARN_FRAMES = 60;     // ~1s: the target's shadow grows while the crow closes in
+export const CROW_FLY_FRAMES = 100;     // total swoop time from the field edge to the target
+export const CROW_SCARE_SCORE = 20;     // bonus for chasing off a crow that is carrying loot
+export const CROW_SPAWN_MARGIN = 70;    // how far outside the field crows appear
 export const FAST_PIG_LEVEL = 8;        // jump window starts shrinking past this level
 
 export const JUMP_DURATION_BASE = 75;   // ~1.25s at 60fps, dragon's window to escape the landing zone
@@ -265,6 +275,39 @@ export function createWindGusts(rng) {
     get arrow() { return arrow; },
     get angle() { return angle; },
   };
+}
+
+// ---------- crows ----------
+// From CROW_LEVEL on, crows swoop in to steal landed coins and ground burgers. The game owns the
+// flight and the stealing; these are the rules for when one shows up and what it goes for.
+export const maxCrowsFor = (level) =>
+  level < CROW_LEVEL ? 0 : level >= CROW_MAX_LATE_LEVEL ? CROW_MAX_LATE : CROW_MAX_EARLY;
+
+// Can the spawn countdown run right now? Needs the level, a free crow slot, something left to
+// steal (`targetCount` = landed coins + ground burgers no crow has already picked) and a pig
+// that isn't mid-jump (the jump is the dodge; crows don't crowd it).
+export const crowsCanSpawn = ({ level, crowCount, targetCount, pigState }) =>
+  crowCount < maxCrowsFor(level) && targetCount > 0 && pigState !== 'jumping';
+
+export const nextCrowDelay = (rng) =>
+  CROW_SPAWN_MIN_FRAMES + rng() * (CROW_SPAWN_MAX_FRAMES - CROW_SPAWN_MIN_FRAMES);
+
+// Crows go for a golden burger first when one is up for grabs; otherwise any target, at random.
+// `targets` is a list of { golden?: boolean, ... }; returns one of them, or null if empty.
+export function pickCrowTarget(targets, rng) {
+  if (!targets.length) return null;
+  const golden = targets.filter((t) => t.golden);
+  const pool = golden.length ? golden : targets;
+  return pool[Math.min(Math.floor(rng() * pool.length), pool.length - 1)];
+}
+
+// Where a crow enters: a point just outside the top, left or right edge of the field (the
+// bottom is the player's end, so crows never come from there).
+export function crowSpawnPoint(W, H, rng) {
+  const side = Math.min(Math.floor(rng() * 3), 2);
+  if (side === 0) return { x: rng() * W, y: -CROW_SPAWN_MARGIN };
+  if (side === 1) return { x: -CROW_SPAWN_MARGIN, y: rng() * H * 0.8 };
+  return { x: W + CROW_SPAWN_MARGIN, y: rng() * H * 0.8 };
 }
 
 // ---------- presentation helpers ----------
