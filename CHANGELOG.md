@@ -2,6 +2,12 @@
 
 Running log of notable changes, kept during dev sessions for reference.
 
+## 2026-10-27 -- Blender model for the pickle slices
+
+The pickle slices the pig lobs are now rendered in Blender (a new `pickle` frame in props.png, built
+by blender/make_props.py): a crinkle-cut scalloped edge, wavy concentric ridges on the flesh and a
+ring of seeds. Falls back to the old hand-drawn slice until props.png loads.
+
 ## 2026-10-27 -- The pig lobs pickle slices
 
 From level 6, the idle pig flings crinkle-cut pickle slices in a high arc at where the dragon is

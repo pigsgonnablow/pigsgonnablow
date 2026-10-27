@@ -1,4 +1,4 @@
-"""Builds the game's other models (dragon, red and slime dragons, burger, coin, rocks, flowers) in Blender and
+"""Builds the game's other models (dragon, red and slime dragons, burger, coin, pickle, rocks, flowers) in Blender and
 renders them to one sprite sheet.
 
 Run with the Blender Python module (pip install bpy pillow):
@@ -30,7 +30,8 @@ FRAME = 256
 FILL = 0.9  # the model's larger side spans this share of the frame
 # Frame order in props.png; index.html's PROP_FRAMES must match.
 PROPS = ['dragon', 'burger', 'coin', 'rock0', 'rock1', 'rock2', 'daisy', 'blossom', 'tulip',
-         'cloud0', 'cloud1', 'cloud2', 'grass0', 'grass1', 'grass2', 'dragon_red', 'dragon_slime']
+         'cloud0', 'cloud1', 'cloud2', 'grass0', 'grass1', 'grass2', 'dragon_red', 'dragon_slime',
+         'pickle']
 # Rows 1 and up of props.png: each animated dragon's walk/flap cycle, same framing as its
 # row-0 frame, in this order.
 WALK_ROWS = ['dragon', 'dragon_red', 'dragon_slime']
@@ -327,6 +328,40 @@ def build_grass(seed_value):
     return 0, 15
 
 
+def build_pickle():
+    # A crinkle-cut pickle slice seen from above: a green skin ring with a scalloped (crinkle) edge,
+    # pale flesh with wavy concentric ridges, and a ring of seeds around the middle.
+    skin = material('PickleSkin', '#4f9a2a', rough=0.35)
+    flesh = material('PickleFlesh', '#b6e07a', rough=0.3, sss=0.3)
+    ridge = material('PickleRidge', '#9fcf5f', rough=0.35)
+    seed = material('PickleSeed', '#eef8c8', rough=0.45)
+    bumps = 14
+    edge = []
+    for i in range(bumps * 4):
+        a = i / (bumps * 4) * math.tau
+        edge.append((math.cos(a) * (1 + 0.07 * math.sin(a * bumps)), math.sin(a) * (1 + 0.07 * math.sin(a * bumps))))
+    flat_shape('PickleSkin', edge, 0.22, (0, 0, -0.11), (0, 0, 0), skin, sub=0)
+    cylinder('PickleFlesh', (0, 0, 0.1), 0.74, 0.14, (0, 0, 0), flesh, 0.03)
+    # wavy concentric ridges: crinkle-cut grooves on the cut face
+    for k, r in enumerate((0.34, 0.5, 0.64)):
+        bpy.ops.mesh.primitive_torus_add(major_radius=r, minor_radius=0.025, location=(0, 0, 0.18),
+                                         major_segments=64, minor_segments=8)
+        t = bpy.context.object
+        t.name = f'Ridge.{k}'
+        for v in t.data.vertices:
+            a = math.atan2(v.co.y, v.co.x)
+            v.co.z += 0.03 * math.sin(a * (8 + 4 * k))
+        t.data.materials.append(ridge)
+        smooth(t, 1)
+    rnd = random.Random(7)
+    for i in range(8):
+        a = i / 8 * math.tau + rnd.uniform(-0.15, 0.15)
+        r = 0.2 + rnd.uniform(-0.03, 0.03)
+        o = sphere(f'PickleSeed.{i}', (r * math.cos(a), r * math.sin(a), 0.2), (0.07, 0.035, 0.025), seed, 10)
+        o.rotation_euler = (0, 0, a + math.pi / 2)
+    return 0, 80
+
+
 POSERS = {}
 
 BUILDERS = {
@@ -337,6 +372,7 @@ BUILDERS = {
     'grass0': lambda: build_grass(1), 'grass1': lambda: build_grass(2), 'grass2': lambda: build_grass(3),
     'dragon_red': lambda: build_dragon('dragon_red'),
     'dragon_slime': lambda: build_dragon('dragon_slime'),
+    'pickle': build_pickle,
 }
 
 
