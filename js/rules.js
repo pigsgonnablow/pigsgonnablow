@@ -30,6 +30,19 @@ export const CROW_WARN_FRAMES = 60;     // ~1s: the target's shadow grows while 
 export const CROW_FLY_FRAMES = 100;     // total swoop time from the field edge to the target
 export const CROW_SCARE_SCORE = 20;     // bonus for chasing off a crow that is carrying loot
 export const CROW_SPAWN_MARGIN = 70;    // how far outside the field crows appear
+export const PICKLE_LEVEL = 6;          // the pig starts lobbing pickle slices at the dragon
+export const PICKLE_VOLLEY_LEVEL = 10;  // from here on it throws volleys instead of single pickles
+export const PICKLE_VOLLEY_MIN = 2;     // volley size is PICKLE_VOLLEY_MIN..PICKLE_VOLLEY_MAX
+export const PICKLE_VOLLEY_MAX = 3;
+export const PICKLE_DELAY_MIN_FRAMES = 240;  // a throw every 4..6s at 60fps
+export const PICKLE_DELAY_MAX_FRAMES = 360;
+export const PICKLE_FLIGHT_FRAMES = 72;      // ~1.2s in the air, the shadow's warning time
+export const PICKLE_TARGET_OFFSET = 55;      // random miss distance around where the dragon stood at launch
+export const PICKLE_HIT_RADIUS = 34;         // landing this close to the dragon is a direct hit
+export const PICKLE_KNOCKBACK = 70;          // how far a hit shoves the dragon away from the splat
+export const PICKLE_PUDDLE_FRAMES = 300;     // a puddle lasts ~5s
+export const PICKLE_PUDDLE_RADIUS = 38;      // how far from a puddle's centre still counts as slippery
+export const PICKLE_SLIP_ACCEL = 0.04;       // dragon's velocity easing on a puddle (normally DRAGON_ACCEL)
 export const FAST_PIG_LEVEL = 8;        // jump window starts shrinking past this level
 
 export const JUMP_DURATION_BASE = 75;   // ~1.25s at 60fps, dragon's window to escape the landing zone
@@ -308,6 +321,44 @@ export function crowSpawnPoint(W, H, rng) {
   if (side === 0) return { x: rng() * W, y: -CROW_SPAWN_MARGIN };
   if (side === 1) return { x: -CROW_SPAWN_MARGIN, y: rng() * H * 0.8 };
   return { x: W + CROW_SPAWN_MARGIN, y: rng() * H * 0.8 };
+}
+
+// ---------- pickles ----------
+// From PICKLE_LEVEL on, an idle pig lobs pickle slices that land near the dragon. The game owns
+// the flight, the splat and the puddles; these are the rules for when, how many and where.
+// Never while the pig is jumping, exploding or cooling down.
+export const picklesCanThrow = ({ level, pigState }) => level >= PICKLE_LEVEL && pigState === 'idle';
+
+export const nextPickleDelay = (rng) =>
+  PICKLE_DELAY_MIN_FRAMES + rng() * (PICKLE_DELAY_MAX_FRAMES - PICKLE_DELAY_MIN_FRAMES);
+
+// One pickle before PICKLE_VOLLEY_LEVEL, then PICKLE_VOLLEY_MIN..PICKLE_VOLLEY_MAX at once.
+export const pickleVolleySize = (level, rng) =>
+  level < PICKLE_VOLLEY_LEVEL ? 1
+    : PICKLE_VOLLEY_MIN + Math.min(Math.floor(rng() * (PICKLE_VOLLEY_MAX - PICKLE_VOLLEY_MIN + 1)), PICKLE_VOLLEY_MAX - PICKLE_VOLLEY_MIN);
+
+// Where a pickle lands: a random spot within PICKLE_TARGET_OFFSET of the dragon's position at
+// launch (so standing still is risky but it's no homing shot), kept inside the field.
+export function pickleTarget(dragon, W, H, rng) {
+  const a = rng() * Math.PI * 2;
+  const d = Math.sqrt(rng()) * PICKLE_TARGET_OFFSET;
+  return {
+    x: Math.max(0, Math.min(W, dragon.x + Math.cos(a) * d)),
+    y: Math.max(0, Math.min(H, dragon.y + Math.sin(a) * d)),
+  };
+}
+
+export const pickleHitsDragon = (landing, dragon) =>
+  Math.hypot(landing.x - dragon.x, landing.y - dragon.y) < PICKLE_HIT_RADIUS + dragon.size * 0.25;
+
+export const onPicklePuddle = (dragon, puddles) =>
+  puddles.some((p) => Math.hypot(p.x - dragon.x, p.y - dragon.y) < PICKLE_PUDDLE_RADIUS);
+
+// Direction (unit vector) a hit shoves the dragon: away from the splat, or down-field if dead centre.
+export function pickleKnockDir(landing, dragon) {
+  const dx = dragon.x - landing.x, dy = dragon.y - landing.y;
+  const len = Math.hypot(dx, dy);
+  return len < 1e-6 ? { x: 0, y: 1 } : { x: dx / len, y: dy / len };
 }
 
 // ---------- presentation helpers ----------
