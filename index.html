@@ -241,7 +241,7 @@
   <div id="overlay">
     <!-- Which build this browser is running. Must match sw.js's CACHE_NAME version (a test checks),
          so a stale cached copy is easy to spot: compare this with the latest on GitHub. -->
-    <div id="appVersion" style="position:absolute; top:8px; left:10px; font-size:11px; color:rgba(255,255,255,0.45); font-family:Arial, sans-serif; pointer-events:none;">v53</div>
+    <div id="appVersion" style="position:absolute; top:8px; left:10px; font-size:11px; color:rgba(255,255,255,0.45); font-family:Arial, sans-serif; pointer-events:none;">v54</div>
     <div class="emoji-row">💥<span id="oinkBtn" title="tap for an oink!">🐷</span>💥 <span id="roarBtn" title="tap for a roar!">🐉</span></div>
     <h1>PIGS GONNA BLOW!</h1>
     <p style="color:#ffd23f; font-weight:900; letter-spacing:0.5px; margin-bottom:8px;">Cheeseburger Dragon vs. The Exploding Pig</p>
@@ -254,7 +254,7 @@
     <p>🐦‍⬛ From level 4, <b>crows</b> swoop in to steal coins and burgers (golden ones first!). Watch for the
       shadow, then touch a crow to scare it off and make it drop its loot.</p>
     <p>🥒 From level 6, the pig lobs <b>pickle slices</b> at you while it's idle. Watch the shadow and step out —
-      a hit knocks you back and makes you drop your burger, and the juice puddles are slippery!</p>
+      a hit costs a heart, slows you down, knocks you back and makes you drop your burger — and the juice puddles are slippery!</p>
     <button id="startBtn">START</button>
     <div style="display:flex; gap:10px; margin-top:10px; flex-wrap:wrap; justify-content:center;">
       <button id="viewLeaderboardBtn" style="width:190px; text-align:center; padding:10px 12px; font-size:14px; font-weight:900; background:transparent; color:#ffd23f; border:2px solid #ffd23f; border-radius:50px; cursor:pointer; font-family: Arial Black, Arial, sans-serif;">🏆 LEADERBOARD</button>
@@ -414,7 +414,7 @@ import {
   PICKLE_FLIGHT_FRAMES, PICKLE_KNOCKBACK, PICKLE_PUDDLE_FRAMES, PICKLE_SLIP_ACCEL,
   picklesCanThrow, nextPickleDelay, pickleVolleySize, pickleTarget, pickleHitsDragon, onPicklePuddle, pickleKnockDir
 } from './js/rules.js';
-import { resolveInputDirection, screenInputToWorldMove, easedVelocity, easedPitch, clampToWorld, clampJoystickVector, bottomAnchoredTop } from './js/movement.js';
+import { DRAGON_SPEED, resolveInputDirection, screenInputToWorldMove, easedVelocity, easedPitch, clampToWorld, clampJoystickVector, bottomAnchoredTop } from './js/movement.js';
 
 (function(){
   // The global error/unhandledrejection listeners and the fatal-error banner they show now live
@@ -659,6 +659,9 @@ import { resolveInputDirection, screenInputToWorldMove, easedVelocity, easedPitc
   let pickles = []; // crinkle-cut pickle slices in the air, lobbed by the pig from PICKLE_LEVEL on
   let picklePuddles = []; // slippery juice where pickles landed
   let pickleTimer = 0; // frames until the pig's next throw
+  let pickleSlowTimer = 0; // frames left of the pickle-hit slowdown
+  const PICKLE_SLOW_FRAMES = 180; // ~3s at 60fps
+  const PICKLE_SLOW_FACTOR = 0.75; // 25% slower while it lasts
   let scorchMarks = []; // burnt grass left behind the dragon, only while the Dragon - Red skin is equipped
 
   let shockMaxRadius = SHOCK_RADIUS_BASE;
@@ -1090,6 +1093,7 @@ import { resolveInputDirection, screenInputToWorldMove, easedVelocity, easedPitc
     pickles = [];
     picklePuddles = [];
     pickleTimer = nextPickleDelay(Math.random);
+    pickleSlowTimer = 0;
     windIndicatorEl.classList.add('hidden');
     jumpDuration = JUMP_DURATION_BASE;
     shockMaxRadius = SHOCK_RADIUS_BASE;
@@ -1395,9 +1399,12 @@ import { resolveInputDirection, screenInputToWorldMove, easedVelocity, easedPitc
 
     // pickle juice is slippery: keep sliding the way you were going, steer slowly
     const slippery = onPicklePuddle(dragon, picklePuddles);
+    // a pickle hit leaves the dragon 25% slower for a few seconds (see landPickle)
+    if (pickleSlowTimer > 0) pickleSlowTimer = Math.max(pickleSlowTimer - frameScale, 0);
+    const speed = pickleSlowTimer > 0 ? DRAGON_SPEED*PICKLE_SLOW_FACTOR : DRAGON_SPEED;
     ({ vx: dragon.vx, vy: dragon.vy } = slippery
-      ? easedVelocity(dragon.vx, dragon.vy, mx, my, frameScale, undefined, PICKLE_SLIP_ACCEL)
-      : easedVelocity(dragon.vx, dragon.vy, mx, my, frameScale));
+      ? easedVelocity(dragon.vx, dragon.vy, mx, my, frameScale, speed, PICKLE_SLIP_ACCEL)
+      : easedVelocity(dragon.vx, dragon.vy, mx, my, frameScale, speed));
     dragon.x += dragon.vx * frameScale;
     dragon.y += dragon.vy * frameScale;
     dragon.walkPhase += Math.hypot(dragon.vx, dragon.vy) * 0.06 * frameScale; // faster steps at speed
@@ -1667,8 +1674,8 @@ import { resolveInputDirection, screenInputToWorldMove, easedVelocity, easedPitc
 
   // ---------- pickles ----------
   // From PICKLE_LEVEL on the idle pig lobs crinkle-cut pickle slices at where the dragon is
-  // standing. A shadow grows on the landing spot; a direct hit costs no heart but knocks the
-  // dragon back, makes it drop its burger and starts the usual invulnerability. Every landing
+  // standing. A shadow grows on the landing spot; a direct hit costs a heart, slows the dragon
+  // 25% for ~3s, knocks it back, makes it drop its burger and starts the usual invulnerability. Every landing
   // leaves a slippery puddle. Rules live in js/rules.js.
   function launchPickle(){
     const t = pickleTarget(dragon, W, H, Math.random);
@@ -1682,6 +1689,9 @@ import { resolveInputDirection, screenInputToWorldMove, easedVelocity, easedPitc
     sfxSplat();
     if (invuln <= 0 && pickleHitsDragon(landing, dragon)){
       invuln = HIT_INVULN_FRAMES;
+      lives -= 1;
+      pickleSlowTimer = PICKLE_SLOW_FRAMES;
+      updateHud();
       const dir = pickleKnockDir(landing, dragon);
       ({ x: dragon.x, y: dragon.y } = clampToWorld(dragon.x + dir.x*PICKLE_KNOCKBACK, dragon.y + dir.y*PICKLE_KNOCKBACK, dragon.size*0.5, W, H));
       if (carrying){
@@ -1690,6 +1700,7 @@ import { resolveInputDirection, screenInputToWorldMove, easedVelocity, easedPitc
         carryingGolden = false;
       }
       sfxHit();
+      if (lives <= 0) endGame();
     }
   }
   function updatePickles(frameScale){
