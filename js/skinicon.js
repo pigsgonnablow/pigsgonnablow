@@ -1,15 +1,15 @@
 // Menu icons for the dragon skins. The in-game dragons are the Blender renders in props.png
-// (frame 0 = green dragon, frame 15 = red dragon, frame 16 = slime dragon), so the Shop and My Skins cards crop the same
+// (see js/props.js for which frame is which), so the Shop and My Skins cards crop the same
 // frames instead of showing the 🐉 emoji. Any other skin keeps its emoji (and color filter).
+import { PROP_ROWS, PROP_FRAMES, SKIN_PROPS } from './props.js';
+
 // props.png is 4 rows of square frames (row 0 = props, rows 1-3 = the walk cycles). Scale it by
 // height only so each square frame is exactly ICON_PX wide, then step along row 0 in pixels. That
 // way adding a prop to the end of the sheet (as the pickle did) doesn't shift the dragons.
-const PROP_ROWS = 4;
 const ICON_PX = 38;
-const SKIN_FRAME = { 'dragon-default': 0, 'dragon-red': 15, 'dragon-slime': 16 };
 
 export function applySkinIcon(el, skin){
-  const frame = SKIN_FRAME[skin.id];
+  const frame = PROP_FRAMES[SKIN_PROPS[skin.id]];
   if (frame === undefined){
     if (skin.color_filter) el.style.filter = skin.color_filter;
     return;

@@ -28,7 +28,7 @@ from make_pig import HERE, ROOT, material, smooth, sphere, cylinder
 
 FRAME = 256
 FILL = 0.9  # the model's larger side spans this share of the frame
-# Frame order in props.png; index.html's PROP_FRAMES and js/skinicon.js's SKIN_FRAME must match.
+# Frame order in props.png; js/props.js's PROP_FRAMES must match (tests/unit/props.test.js checks).
 PROPS = ['dragon', 'burger', 'coin', 'rock0', 'rock1', 'rock2', 'daisy', 'blossom', 'tulip',
          'cloud0', 'cloud1', 'cloud2', 'grass0', 'grass1', 'grass2', 'dragon_red', 'dragon_slime',
          'pickle']
