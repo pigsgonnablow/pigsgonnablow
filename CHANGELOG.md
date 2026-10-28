@@ -2,6 +2,13 @@
 
 Running log of notable changes, kept during dev sessions for reference.
 
+## 2026-10-28 -- Dragon skin icons fixed
+
+The Shop and My Skins icons were cropped from props.png assuming 17 frames; the pickle frame made
+it 18, so Dragon - Red showed the slime dragon and Slime Dragon showed the pickle. js/skinicon.js
+now steps along the sheet in pixels, so appending frames can't shift them. Service worker cache
+bumped to v55.
+
 ## 2026-10-27 -- Blender model for the pickle slices
 
 The pickle slices the pig lobs are now rendered in Blender (a new `pickle` frame in props.png, built
