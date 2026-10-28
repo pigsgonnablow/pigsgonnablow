@@ -241,7 +241,7 @@
   <div id="overlay">
     <!-- Which build this browser is running. Must match sw.js's CACHE_NAME version (a test checks),
          so a stale cached copy is easy to spot: compare this with the latest on GitHub. -->
-    <div id="appVersion" style="position:absolute; top:8px; left:10px; font-size:11px; color:rgba(255,255,255,0.45); font-family:Arial, sans-serif; pointer-events:none;">v55</div>
+    <div id="appVersion" style="position:absolute; top:8px; left:10px; font-size:11px; color:rgba(255,255,255,0.45); font-family:Arial, sans-serif; pointer-events:none;">v56</div>
     <div class="emoji-row">💥<span id="oinkBtn" title="tap for an oink!">🐷</span>💥 <span id="roarBtn" title="tap for a roar!">🐉</span></div>
     <h1>PIGS GONNA BLOW!</h1>
     <p style="color:#ffd23f; font-weight:900; letter-spacing:0.5px; margin-bottom:8px;">Cheeseburger Dragon vs. The Exploding Pig</p>
@@ -399,6 +399,7 @@ import { createShop } from './js/shop.js';
 import { createMySkins } from './js/myskins.js';
 import { createStats } from './js/stats.js';
 import { createPortal } from './js/portal.js';
+import { PROP_FRAME, PROP_FRAMES, DRAGON_WALK_ROWS, DRAGON_WALK_FRAMES } from './js/props.js';
 import {
   START_LIVES, MAX_LIVES, START_BURGERS_TO_FULL, BURGER_THROW_COST,
   START_GROUND_BURGERS,
@@ -609,6 +610,9 @@ import { DRAGON_SPEED, resolveInputDirection, screenInputToWorldMove, easedVeloc
     dragonFilter = (session && profile && profile.color_filter) ? profile.color_filter : 'none';
     dragonIsRed = !!(session && profile && profile.equipped_skin_id === 'dragon-red');
     dragonIsSlime = !!(session && profile && profile.equipped_skin_id === 'dragon-slime');
+    // Show the equipped skin behind the menus too. Deferred: this first runs during registration,
+    // before the game state redrawIfIdle reads has been declared.
+    queueMicrotask(redrawIfIdle);
   });
   const authReady = auth.init();
 
@@ -759,12 +763,8 @@ import { DRAGON_SPEED, resolveInputDirection, screenInputToWorldMove, easedVeloc
   // loads (or if it fails to) everything falls back to the emoji / hand-drawn versions.
   const propSprite = new Image();
   propSprite.src = 'props.png';
-  const PROP_FRAME = 256, PROP_FILL = 0.9;
-  const PROP_FRAMES = { dragon:0, burger:1, coin:2, rock0:3, rock1:4, rock2:5, daisy:6, blossom:7, tulip:8,
-                        cloud0:9, cloud1:10, cloud2:11, grass0:12, grass1:13, grass2:14, dragon_red:15,
-                        dragon_slime:16, pickle:17 };
-  // rows 1-3: the dragon's, the red dragon's and the slime dragon's walk/flap cycles
-  const DRAGON_WALK_ROW = 1, DRAGON_RED_WALK_ROW = 2, DRAGON_SLIME_WALK_ROW = 3, DRAGON_WALK_FRAMES = 8;
+  // Frame indices live in js/props.js, shared with the Shop / My Skins icons.
+  const PROP_FILL = 0.9;
   const FLOWER_PROPS = { '🌼':'daisy', '🌸':'blossom', '🌷':'tulip' };
   // On phones the whole board is shrunk to fit, which leaves the dragon, burgers and coins
   // tiny, so draw those bigger on touch screens. Looks only: hit and pickup radii are unchanged.
@@ -2136,7 +2136,7 @@ import { DRAGON_SPEED, resolveInputDirection, screenInputToWorldMove, easedVeloc
     // 'none' or a recolor filter for skins that reuse this glyph -- see dragonFilter. The red
     // and slime dragons have their own Blender models, so their filters only apply to the
     // emoji fallback.
-    ctx.filter = ((dragonIsRed || dragonIsSlime) && dragonEmoji === '🐉' && propsReady()) ? 'none' : dragonFilter;
+    ctx.filter = ((dragonIsRed || dragonIsSlime) && propsReady()) ? 'none' : dragonFilter;
     drawDragonGlyph();
     ctx.filter = 'none';
     ctx.restore();
@@ -2146,18 +2146,20 @@ import { DRAGON_SPEED, resolveInputDirection, screenInputToWorldMove, easedVeloc
 
   // The default 🐉 (and skins that recolor it with a filter) is the Blender dragon, which faces
   // screen-left like the emoji so the mirroring and pitch above apply unchanged. The Dragon - Red
-  // and Slime Dragon skins draw their own Blender dragons instead. Skins that swap in a different emoji keep drawing
+  // and Slime Dragon skins draw their own Blender dragons instead -- picked by skin id, not by the
+  // profile's emoji, since an account that equipped Dragon - Red before its color filter existed
+  // still has the old '🔴🐉' avatar stored. Skins that swap in a different emoji keep drawing
   // that emoji.
   function drawDragonGlyph(){
-    if (dragonEmoji === '🐉' && propsReady()){
+    if ((dragonEmoji === '🐉' || dragonIsRed || dragonIsSlime) && propsReady()){
       // Steps and flaps through the walk cycle while moving; stands still otherwise.
       const size = dragon.size*2*MOBILE_PROP_SCALE;
+      const prop = dragonIsRed ? 'dragon_red' : dragonIsSlime ? 'dragon_slime' : 'dragon';
       if (Math.hypot(dragon.vx, dragon.vy) > 0.3){
         const frame = Math.floor(dragon.walkPhase) % DRAGON_WALK_FRAMES;
-        const row = dragonIsRed ? DRAGON_RED_WALK_ROW : dragonIsSlime ? DRAGON_SLIME_WALK_ROW : DRAGON_WALK_ROW;
-        drawPropFrame(frame, row, 0, 0, size);
+        drawPropFrame(frame, DRAGON_WALK_ROWS[prop], 0, 0, size);
       } else {
-        drawProp(dragonIsRed ? 'dragon_red' : dragonIsSlime ? 'dragon_slime' : 'dragon', 0, 0, size);
+        drawProp(prop, 0, 0, size);
       }
       return;
     }
@@ -2831,6 +2833,12 @@ import { DRAGON_SPEED, resolveInputDirection, screenInputToWorldMove, easedVeloc
   // initial static draw behind overlay
   resetGame();
   draw();
+  // That first draw runs before pig.png / props.png have loaded (and before auth knows which skin
+  // is equipped), so the title and menu screens showed the placeholder pig and emoji dragon behind
+  // them. Draw the idle scene again once each of those arrives (auth's listener is up top).
+  function redrawIfIdle(){ if (!running) draw(); }
+  if (!pigSprite.complete) pigSprite.addEventListener('load', redrawIfIdle);
+  if (!propSprite.complete) propSprite.addEventListener('load', redrawIfIdle);
 })();
 
 const isLocalDev = ['localhost','127.0.0.1'].includes(location.hostname);
