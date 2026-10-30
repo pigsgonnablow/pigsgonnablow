@@ -241,7 +241,7 @@
   <div id="overlay">
     <!-- Which build this browser is running. Must match sw.js's CACHE_NAME version (a test checks),
          so a stale cached copy is easy to spot: compare this with the latest on GitHub. -->
-    <div id="appVersion" style="position:absolute; top:8px; left:10px; font-size:11px; color:rgba(255,255,255,0.45); font-family:Arial, sans-serif; pointer-events:none;">v57</div>
+    <div id="appVersion" style="position:absolute; top:8px; left:10px; font-size:11px; color:rgba(255,255,255,0.45); font-family:Arial, sans-serif; pointer-events:none;">v58</div>
     <div class="emoji-row">💥<span id="oinkBtn" title="tap for an oink!">🐷</span>💥 <span id="roarBtn" title="tap for a roar!">🐉</span></div>
     <h1>PIGS GONNA BLOW!</h1>
     <p style="color:#ffd23f; font-weight:900; letter-spacing:0.5px; margin-bottom:8px;">Cheeseburger Dragon vs. The Exploding Pig</p>
@@ -2177,72 +2177,29 @@ import { DRAGON_SPEED, resolveInputDirection, screenInputToWorldMove, easedVeloc
     }
 
     // 'none' or a recolor filter for skins that reuse this glyph -- see dragonFilter. The red
-    // and slime dragons have their own Blender models, so their filters only apply to the
+    // slime and unicorn dragons have their own Blender models, so their filters only apply to the
     // emoji fallback.
-    ctx.filter = dragonIsUnicorn ? UNICORN_FILTER : ((dragonIsRed || dragonIsSlime) && propsReady()) ? 'none' : dragonFilter;
+    ctx.filter = ((dragonIsRed || dragonIsSlime || dragonIsUnicorn) && propsReady()) ? 'none' : dragonFilter;
     drawDragonGlyph();
     ctx.filter = 'none';
-    if (dragonIsUnicorn && propsReady()) drawUnicornGear();
     ctx.restore();
 
     ctx.restore();
   }
 
   // The default 🐉 (and skins that recolor it with a filter) is the Blender dragon, which faces
-  // screen-left like the emoji so the mirroring and pitch above apply unchanged. The Dragon - Red
-  // and Slime Dragon skins draw their own Blender dragons instead -- picked by skin id, not by the
+  // screen-left like the emoji so the mirroring and pitch above apply unchanged. The Dragon - Red,
+  // Slime Dragon and Unicorn Dragon skins draw their own Blender dragons instead -- picked by skin id, not by the
   // profile's emoji, since an account that equipped Dragon - Red before its color filter existed
   // still has the old '🔴🐉' avatar stored. Skins that swap in a different emoji keep drawing
   // that emoji.
-  // The Unicorn Dragon recolors the base Blender dragon pink and lilac, then paints a golden horn,
-  // a rainbow mane and a rainbow tail tuft over it. UNICORN_FILTER shifts the dragon's green to pink.
-  const UNICORN_FILTER = 'hue-rotate(190deg) saturate(1.1) brightness(1.2)';
   const RAINBOW = ['#ff4d4d','#ff9f1c','#ffe14d','#5ce65c','#4dc3ff','#b06bff'];
-  function drawUnicornGear(){
-    // Drawn in the glyph's own mirrored space (head to screen-left), in fractions of its frame.
-    const f = dragon.size*2*MOBILE_PROP_SCALE/PROP_FILL;
-    const wave = Math.sin(glowClock*5);
-    // mane: rainbow ribbons flowing from the head back along the neck
-    ctx.lineCap = 'round';
-    ctx.lineWidth = f*0.028;
-    RAINBOW.forEach((c, i) => {
-      const dy = (i - 2.5)*f*0.026;
-      ctx.strokeStyle = c;
-      ctx.beginPath();
-      ctx.moveTo(-0.27*f, -0.17*f + dy);
-      ctx.bezierCurveTo(-0.17*f, -0.27*f + dy + wave*f*0.01, -0.07*f, -0.12*f + dy, 0.02*f, -0.2*f + dy + wave*f*0.03);
-      ctx.stroke();
-    });
-    // tail tuft
-    RAINBOW.forEach((c, i) => {
-      ctx.strokeStyle = c;
-      ctx.beginPath();
-      ctx.moveTo(0.36*f, -0.03*f);
-      ctx.quadraticCurveTo(0.44*f, (-0.12 + i*0.045)*f + wave*f*0.01, 0.49*f, (-0.16 + i*0.05)*f);
-      ctx.stroke();
-    });
-    // golden spiral horn on the forehead
-    ctx.fillStyle = '#ffd84d';
-    ctx.strokeStyle = '#c98a00';
-    ctx.lineWidth = f*0.008;
-    ctx.beginPath();
-    ctx.moveTo(-0.3*f, -0.12*f);
-    ctx.lineTo(-0.33*f, -0.29*f);
-    ctx.lineTo(-0.24*f, -0.14*f);
-    ctx.closePath();
-    ctx.fill();
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(-0.307*f, -0.17*f); ctx.lineTo(-0.27*f, -0.19*f);
-    ctx.moveTo(-0.318*f, -0.22*f); ctx.lineTo(-0.285*f, -0.235*f);
-    ctx.stroke();
-  }
 
   function drawDragonGlyph(){
     if ((dragonEmoji === '🐉' || dragonIsRed || dragonIsSlime || dragonIsUnicorn) && propsReady()){
       // Steps and flaps through the walk cycle while moving; stands still otherwise.
       const size = dragon.size*2*MOBILE_PROP_SCALE;
-      const prop = dragonIsRed ? 'dragon_red' : dragonIsSlime ? 'dragon_slime' : 'dragon'; // the unicorn recolors the base dragon
+      const prop = dragonIsRed ? 'dragon_red' : dragonIsSlime ? 'dragon_slime' : dragonIsUnicorn ? 'dragon_unicorn' : 'dragon';
       if (Math.hypot(dragon.vx, dragon.vy) > 0.3){
         const frame = Math.floor(dragon.walkPhase) % DRAGON_WALK_FRAMES;
         drawPropFrame(frame, DRAGON_WALK_ROWS[prop], 0, 0, size);
