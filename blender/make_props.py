@@ -11,8 +11,8 @@ Writes:
                          (FILL), centred, so the game can draw any of them at a given size the
                          same way. Row 1 is the dragon's walk/flap cycle (WALK_FRAMES frames),
                          framed exactly like its row-0 standing frame; row 2 is the same for
-                         the red dragon (the Dragon - Red skin), and row 3 for the slime dragon
-                         (the Slime Dragon skin).
+                         the red dragon (the Dragon - Red skin), row 3 for the slime dragon
+                         (the Slime Dragon skin) and row 4 for the unicorn dragon.
 """
 import math
 import os
@@ -31,10 +31,10 @@ FILL = 0.9  # the model's larger side spans this share of the frame
 # Frame order in props.png; js/props.js's PROP_FRAMES must match (tests/unit/props.test.js checks).
 PROPS = ['dragon', 'burger', 'coin', 'rock0', 'rock1', 'rock2', 'daisy', 'blossom', 'tulip',
          'cloud0', 'cloud1', 'cloud2', 'grass0', 'grass1', 'grass2', 'dragon_red', 'dragon_slime',
-         'pickle']
+         'pickle', 'dragon_unicorn']
 # Rows 1 and up of props.png: each animated dragon's walk/flap cycle, same framing as its
 # row-0 frame, in this order.
-WALK_ROWS = ['dragon', 'dragon_red', 'dragon_slime']
+WALK_ROWS = ['dragon', 'dragon_red', 'dragon_slime', 'dragon_unicorn']
 WALK_FRAMES = 8
 
 
@@ -97,12 +97,17 @@ DRAGON_COLORS = {
     # Slime Dragon skin: bright lime scales, a pale goo belly, deep green wings and yellow-green
     # horns. Its skin is glossier than the others and it drips (see build_dragon).
     'dragon_slime': ('#76e21b', '#d4ff7a', '#2f8f1a', '#c6e85a', '#123a0c'),
+    # Unicorn Dragon skin: pink scales, a pale lilac belly, lilac wings and a golden horn. The
+    # rainbow mane and tail tuft are added in build_dragon.
+    'dragon_unicorn': ('#ff8fc7', '#ffe3f3', '#c9a0ff', '#ffd84d', '#3a1d4a'),
 }
+RAINBOW = ['#ff4d4d', '#ff9f1c', '#ffe14d', '#5ce65c', '#4dc3ff', '#b06bff']
 
 
 def build_dragon(name='dragon'):
     skin, belly_c, wing_c, horn_c, dark_c = DRAGON_COLORS[name]
     slimy = name == 'dragon_slime'
+    unicorn = name == 'dragon_unicorn'
     green = material('DragonSkin', skin, rough=0.12 if slimy else 0.45, sss=0.15 if slimy else 0.05)
     belly = material('DragonBelly', belly_c, rough=0.5)
     wing = material('DragonWing', wing_c, rough=0.5)
@@ -152,6 +157,20 @@ def build_dragon(name='dragon'):
     for i, x in enumerate((-0.45, -0.15, 0.15, 0.45, 0.75)):
         cone(f'Spike.{i}', (x, 0, 0.56 - 0.06 * abs(x - 0.15)), 0.11, 0.0, 0.26, (0, 0, 0), horn,
              scale=(1, 0.5, 1), verts=4)
+    if unicorn:
+        # a long spiralled horn on the forehead, a ribbon mane down the neck and back, and a tail tuft
+        gold = material('UnicornHorn', horn_c, rough=0.25)
+        cone('UnicornHorn', (-1.2, 0, 1.45), 0.1, 0.0, 0.85, (0, math.radians(-28), 0), gold, verts=16)
+        for i in range(4):
+            sphere(f'HornRing.{i}', (-1.0 - 0.07 * i, 0, 1.2 + 0.14 * i), (0.09 - 0.017 * i,) * 2 + (0.03,), gold, 12)
+        for i, c in enumerate(RAINBOW):
+            m = material(f'Mane.{i}', c, rough=0.4)
+            for j in range(6):
+                t = j / 5
+                # a rainbow band across the crest: each colour sits a step further down the slope
+                sphere(f'Mane.{i}.{j}', (-0.82 + t * 1.0 + 0.04 * i, 0, 1.12 - t * 0.5 + 0.0 - 0.055 * i + 0.1),
+                       (0.1, 0.07, 0.07), m, 12)
+            tail.append(sphere(f'TuftPuff.{i}', (1.95 + 0.04 * i, 0, 0.5 + 0.07 * i), (0.09, 0.05, 0.09), m, 12))
     if slimy:
         # goo hanging off the chin and belly: a blob on the skin with a teardrop below it
         goo = material('Goo', '#9cff3a', rough=0.05, sss=0.3)
@@ -372,6 +391,7 @@ BUILDERS = {
     'grass0': lambda: build_grass(1), 'grass1': lambda: build_grass(2), 'grass2': lambda: build_grass(3),
     'dragon_red': lambda: build_dragon('dragon_red'),
     'dragon_slime': lambda: build_dragon('dragon_slime'),
+    'dragon_unicorn': lambda: build_dragon('dragon_unicorn'),
     'pickle': build_pickle,
 }
 

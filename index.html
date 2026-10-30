@@ -241,7 +241,7 @@
   <div id="overlay">
     <!-- Which build this browser is running. Must match sw.js's CACHE_NAME version (a test checks),
          so a stale cached copy is easy to spot: compare this with the latest on GitHub. -->
-    <div id="appVersion" style="position:absolute; top:8px; left:10px; font-size:11px; color:rgba(255,255,255,0.45); font-family:Arial, sans-serif; pointer-events:none;">v56</div>
+    <div id="appVersion" style="position:absolute; top:8px; left:10px; font-size:11px; color:rgba(255,255,255,0.45); font-family:Arial, sans-serif; pointer-events:none;">v58</div>
     <div class="emoji-row">💥<span id="oinkBtn" title="tap for an oink!">🐷</span>💥 <span id="roarBtn" title="tap for a roar!">🐉</span></div>
     <h1>PIGS GONNA BLOW!</h1>
     <p style="color:#ffd23f; font-weight:900; letter-spacing:0.5px; margin-bottom:8px;">Cheeseburger Dragon vs. The Exploding Pig</p>
@@ -592,6 +592,8 @@ import { DRAGON_SPEED, resolveInputDirection, screenInputToWorldMove, easedVeloc
   let dragonIsRed = false;
   // Same idea for the Slime Dragon skin's slime trail (see spawnSlimePuddle/drawSlimePuddles).
   let dragonIsSlime = false;
+  // And the Unicorn Dragon's rainbow sprinkle trail and nyan-cat burgers (see spawnSprinkle/drawSprinkles).
+  let dragonIsUnicorn = false;
 
   auth.onChange(({ session, profile }) => {
     accountSignedOut.classList.toggle('hidden', !!session);
@@ -610,6 +612,7 @@ import { DRAGON_SPEED, resolveInputDirection, screenInputToWorldMove, easedVeloc
     dragonFilter = (session && profile && profile.color_filter) ? profile.color_filter : 'none';
     dragonIsRed = !!(session && profile && profile.equipped_skin_id === 'dragon-red');
     dragonIsSlime = !!(session && profile && profile.equipped_skin_id === 'dragon-slime');
+    dragonIsUnicorn = !!(session && profile && profile.equipped_skin_id === 'dragon-unicorn');
     // Show the equipped skin behind the menus too. Deferred: this first runs during registration,
     // before the game state redrawIfIdle reads has been declared.
     queueMicrotask(redrawIfIdle);
@@ -657,6 +660,7 @@ import { DRAGON_SPEED, resolveInputDirection, screenInputToWorldMove, easedVeloc
   let windSwooshes = []; // large curved "gust slash" shapes sweeping across the screen, purely visual
   let dragonTrail = []; // recent dragon world-positions while gusting -- draws as a motion smear pointing upwind
   let dragonEmbers = []; // ember particles drifting off the dragon, only while the Dragon - Red skin is equipped
+  let sprinkles = []; // rainbow sprinkles left on the ground behind the dragon, only while the Unicorn Dragon skin is equipped
   let slimePuddles = []; // slime left on the ground behind the dragon, only while the Slime Dragon skin is equipped
   let crows = []; // thieves from CROW_LEVEL on, see updateCrows
   let crowTimer = 0; // frames until the next crow may show up
@@ -1087,6 +1091,7 @@ import { DRAGON_SPEED, resolveInputDirection, screenInputToWorldMove, easedVeloc
     dragonTrail = [];
     dragonEmbers = [];
     slimePuddles = [];
+    sprinkles = [];
     scorchMarks = [];
     crows = [];
     crowTimer = nextCrowDelay(Math.random);
@@ -1177,6 +1182,19 @@ import { DRAGON_SPEED, resolveInputDirection, screenInputToWorldMove, easedVeloc
     if (slimePuddles.length > 120) slimePuddles.shift();
   }
 
+  // One ice-cream sprinkle dropped by the Unicorn Dragon skin: a tiny rounded bar in a random
+  // candy color, lying flat where it landed and fading slowly. `x`/`y` default to just behind
+  // the dragon; a nyan burger passes its own spot.
+  const SPRINKLE_COLORS = ['#ff4d6d','#ff9f1c','#ffe14d','#5ce65c','#4dc3ff','#b06bff','#ff7ad9'];
+  function spawnSprinkle(x = dragon.x - dragon.faceX*dragon.size*0.2, y = dragon.y){
+    sprinkles.push({
+      x: x + rand(-9,9), y: y + rand(-9,9),
+      rot: rand(0, Math.PI), life: 1,
+      color: SPRINKLE_COLORS[Math.floor(Math.random()*SPRINKLE_COLORS.length)]
+    });
+    if (sprinkles.length > 220) sprinkles.shift();
+  }
+
   // One patch of burnt grass left under the Dragon - Red skin. Like the slime puddles it lies
   // flat and stays put, but starts out glowing hot with little flames licking up off it, then
   // cools to a black char that slowly fades -- so the ground visibly burns where the dragon flew.
@@ -1253,7 +1271,8 @@ import { DRAGON_SPEED, resolveInputDirection, screenInputToWorldMove, easedVeloc
       x: dragon.x, y: dragon.y, vx: Math.cos(angle)*speed, vy: Math.sin(angle)*speed,
       rot: 0, life: 90, golden,
       flaming: dragonIsRed, // Dragon - Red's burgers leave its mouth charred and on fire
-      slimy: dragonIsSlime // the Slime Dragon's burgers come out coated in goo (see drawBurgerSlime)
+      slimy: dragonIsSlime, // the Slime Dragon's burgers come out coated in goo (see drawBurgerSlime)
+      nyan: dragonIsUnicorn // the Unicorn Dragon turns its burgers into rainbow-trailing nyan cats
     });
     sfxThrow();
   }
@@ -1447,6 +1466,11 @@ import { DRAGON_SPEED, resolveInputDirection, screenInputToWorldMove, easedVeloc
     if (dragonIsSlime && Math.hypot(dragon.vx,dragon.vy) > 0.4 && Math.random() < 0.5*frameScale){
       spawnSlimePuddle();
     }
+    // Unicorn Dragon skin: a couple of rainbow sprinkles per step, same movement gate.
+    if (dragonIsUnicorn && Math.hypot(dragon.vx,dragon.vy) > 0.4){
+      const n = (Math.random() < 0.9*frameScale ? 1 : 0) + (Math.random() < 0.5*frameScale ? 1 : 0);
+      for (let i=0;i<n;i++) spawnSprinkle();
+    }
 
     if (invuln > 0) invuln -= frameScale;
 
@@ -1486,6 +1510,7 @@ import { DRAGON_SPEED, resolveInputDirection, screenInputToWorldMove, easedVeloc
         });
       }
       if (b.slimy && Math.random() < 0.4*frameScale) spawnSlimePuddle(b.x, b.y, rand(3,6));
+      if (b.nyan && Math.random() < 0.6*frameScale) spawnSprinkle(b.x, b.y);
       if (pigState === 'idle' && withinScreenRange(b.x,b.y,pig.x,pig.y, projectileFeedRadius(pig.baseSize, pigVisualScale()))){
         burgerProjectiles.splice(i,1);
         if (b.slimy) spawnBurst(b.x, b.y, '#b4ff3c', 14); // goo splatters off the pig on impact
@@ -1644,6 +1669,11 @@ import { DRAGON_SPEED, resolveInputDirection, screenInputToWorldMove, easedVeloc
       e.vz *= Math.pow(0.96, frameScale); // rise decelerates like smoke losing heat
       e.life -= 0.025*frameScale;
       if (e.life <= 0) dragonEmbers.splice(i,1);
+    }
+    // --- sprinkles (purely visual, see spawnSprinkle) ---
+    for (let i=sprinkles.length-1;i>=0;i--){
+      sprinkles[i].life -= 0.004*frameScale;
+      if (sprinkles[i].life <= 0) sprinkles.splice(i,1);
     }
     // --- slime puddles (purely visual, see spawnSlimePuddle) ---
     for (let i=slimePuddles.length-1;i>=0;i--){
@@ -2088,6 +2118,19 @@ import { DRAGON_SPEED, resolveInputDirection, screenInputToWorldMove, easedVeloc
       ctx.fill();
     }
 
+    if (dragonIsUnicorn){
+      // the unicorn's idle glow: a soft pink-to-lilac halo
+      const pulse = 1 + Math.sin(glowClock*2)*0.08;
+      const haloR = dragon.size*0.55*pulse;
+      const halo = ctx.createRadialGradient(0, 0, 0, 0, 0, haloR);
+      halo.addColorStop(0, 'rgba(255,150,230,0.38)');
+      halo.addColorStop(1, 'rgba(190,150,255,0)');
+      ctx.fillStyle = halo;
+      ctx.beginPath();
+      ctx.arc(0, 0, haloR, 0, Math.PI*2);
+      ctx.fill();
+    }
+
     if (carrying){
       const bob = Math.sin(dragon.carryBob)*3;
       const by = -dragon.size*0.6 + bob;
@@ -2134,9 +2177,9 @@ import { DRAGON_SPEED, resolveInputDirection, screenInputToWorldMove, easedVeloc
     }
 
     // 'none' or a recolor filter for skins that reuse this glyph -- see dragonFilter. The red
-    // and slime dragons have their own Blender models, so their filters only apply to the
+    // slime and unicorn dragons have their own Blender models, so their filters only apply to the
     // emoji fallback.
-    ctx.filter = ((dragonIsRed || dragonIsSlime) && propsReady()) ? 'none' : dragonFilter;
+    ctx.filter = ((dragonIsRed || dragonIsSlime || dragonIsUnicorn) && propsReady()) ? 'none' : dragonFilter;
     drawDragonGlyph();
     ctx.filter = 'none';
     ctx.restore();
@@ -2145,16 +2188,18 @@ import { DRAGON_SPEED, resolveInputDirection, screenInputToWorldMove, easedVeloc
   }
 
   // The default 🐉 (and skins that recolor it with a filter) is the Blender dragon, which faces
-  // screen-left like the emoji so the mirroring and pitch above apply unchanged. The Dragon - Red
-  // and Slime Dragon skins draw their own Blender dragons instead -- picked by skin id, not by the
+  // screen-left like the emoji so the mirroring and pitch above apply unchanged. The Dragon - Red,
+  // Slime Dragon and Unicorn Dragon skins draw their own Blender dragons instead -- picked by skin id, not by the
   // profile's emoji, since an account that equipped Dragon - Red before its color filter existed
   // still has the old '🔴🐉' avatar stored. Skins that swap in a different emoji keep drawing
   // that emoji.
+  const RAINBOW = ['#ff4d4d','#ff9f1c','#ffe14d','#5ce65c','#4dc3ff','#b06bff'];
+
   function drawDragonGlyph(){
-    if ((dragonEmoji === '🐉' || dragonIsRed || dragonIsSlime) && propsReady()){
+    if ((dragonEmoji === '🐉' || dragonIsRed || dragonIsSlime || dragonIsUnicorn) && propsReady()){
       // Steps and flaps through the walk cycle while moving; stands still otherwise.
       const size = dragon.size*2*MOBILE_PROP_SCALE;
-      const prop = dragonIsRed ? 'dragon_red' : dragonIsSlime ? 'dragon_slime' : 'dragon';
+      const prop = dragonIsRed ? 'dragon_red' : dragonIsSlime ? 'dragon_slime' : dragonIsUnicorn ? 'dragon_unicorn' : 'dragon';
       if (Math.hypot(dragon.vx, dragon.vy) > 0.3){
         const frame = Math.floor(dragon.walkPhase) % DRAGON_WALK_FRAMES;
         drawPropFrame(frame, DRAGON_WALK_ROWS[prop], 0, 0, size);
@@ -2401,6 +2446,11 @@ import { DRAGON_SPEED, resolveInputDirection, screenInputToWorldMove, easedVeloc
       ctx.shadowColor = '#ff7a1a';
       ctx.shadowBlur = 12;
     }
+    if (b.nyan){
+      drawNyanBurger(b, scr);
+      ctx.restore();
+      return;
+    }
     if (b.slimy){
       // the same goo-green glow the Slime Dragon itself has
       const halo = ctx.createRadialGradient(scr.sx, scr.sy, 0, scr.sx, scr.sy, 22);
@@ -2419,6 +2469,65 @@ import { DRAGON_SPEED, resolveInputDirection, screenInputToWorldMove, easedVeloc
     ctx.shadowBlur = 0;
     if (b.slimy) drawBurgerSlime(size);
     ctx.restore();
+  }
+
+  // A Unicorn Dragon burger in flight: a nyan cat (pink-frosted pop-tart body, grey head, little
+  // legs) flying along its throw direction with a wavy six-band rainbow streaming out behind it.
+  function drawNyanBurger(b, scr){
+    const ahead = worldToScreen(b.x + b.vx, b.y + b.vy);
+    const dir = ahead.sx >= scr.sx ? 1 : -1; // cat faces whichever way it's flying across the screen
+    const k = MOBILE_PROP_SCALE;
+    const band = 4*k, len = 90*k;
+    const t = glowClock*14;
+    ctx.translate(scr.sx, scr.sy);
+    ctx.scale(dir, 1);
+    // rainbow: back from the cat's body, each band a wavy ribbon
+    ctx.lineWidth = band + 0.5;
+    ctx.lineCap = 'butt';
+    RAINBOW.forEach((c, i) => {
+      ctx.strokeStyle = c;
+      ctx.beginPath();
+      const y0 = (i - 2.5)*band;
+      ctx.moveTo(-8*k, y0);
+      for (let x=-8*k; x>-len; x-=6*k){
+        ctx.lineTo(x, y0 + Math.sin(t*0.3 + x*0.12)*2.5*k);
+      }
+      ctx.stroke();
+    });
+    // pop-tart body
+    const w = 30*k, h = 24*k;
+    ctx.fillStyle = '#f5d28b';
+    ctx.strokeStyle = '#3b2a3b';
+    ctx.lineWidth = 2*k;
+    ctx.beginPath(); ctx.roundRect(-w/2, -h/2, w, h, 5*k); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#ff8fc7';
+    ctx.beginPath(); ctx.roundRect(-w/2 + 3.5*k, -h/2 + 3.5*k, w - 7*k, h - 7*k, 4*k); ctx.fill();
+    ctx.fillStyle = '#c2447f';
+    for (const [dx, dy] of [[-8,-5],[2,-7],[8,2],[-4,3],[-9,6],[4,7]]){
+      ctx.fillRect((dx - 1)*k, (dy - 1)*k, 2.5*k, 2.5*k);
+    }
+    // feet, tail and head
+    ctx.fillStyle = '#8f8f9f';
+    const step = Math.sin(t)*1.5*k;
+    for (const lx of [-w/2 + 1*k, -w/2 + 8*k, w/2 - 12*k, w/2 - 5*k]){
+      ctx.beginPath(); ctx.roundRect(lx, h/2 - 3*k + step*(lx < 0 ? 1 : -1), 5*k, 6*k, 2*k); ctx.fill(); ctx.stroke();
+    }
+    ctx.beginPath(); ctx.moveTo(-w/2, 0); ctx.lineTo(-w/2 - 8*k, -3*k + step); ctx.lineTo(-w/2, 4*k); ctx.fill(); ctx.stroke();
+    const hx = w/2 + 5*k, hy = -1*k;
+    ctx.beginPath(); ctx.ellipse(hx, hy, 11*k, 9.5*k, 0, 0, Math.PI*2); ctx.fill(); ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(hx - 9*k, hy - 4*k); ctx.lineTo(hx - 8*k, hy - 15*k); ctx.lineTo(hx - 2*k, hy - 8*k);
+    ctx.moveTo(hx + 9*k, hy - 4*k); ctx.lineTo(hx + 8*k, hy - 15*k); ctx.lineTo(hx + 2*k, hy - 8*k);
+    ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#111';
+    ctx.fillRect(hx - 5*k, hy - 3*k, 2.5*k, 3*k);
+    ctx.fillRect(hx + 3*k, hy - 3*k, 2.5*k, 3*k);
+    ctx.fillStyle = '#ff9bb5';
+    ctx.fillRect(hx - 8*k, hy + 2*k, 3*k, 3*k);
+    ctx.fillRect(hx + 5*k, hy + 2*k, 3*k, 3*k);
+    ctx.strokeStyle = '#111';
+    ctx.lineWidth = 1.2*k;
+    ctx.beginPath(); ctx.moveTo(hx - 3*k, hy + 4*k); ctx.lineTo(hx + 3*k, hy + 4*k); ctx.stroke();
   }
 
   // Goo coating a slimy thrown burger, drawn in the burger's own spinning frame: a glob over the
@@ -2575,6 +2684,26 @@ import { DRAGON_SPEED, resolveInputDirection, screenInputToWorldMove, easedVeloc
     ctx.restore();
   }
 
+  // Rainbow sprinkles for the Unicorn Dragon skin (see spawnSprinkle): little rounded bars lying
+  // on the ground, squashed to the floor's iso angle and fading out.
+  function drawSprinkles(){
+    if (!sprinkles.length) return;
+    ctx.save();
+    ctx.lineCap = 'round';
+    ctx.lineWidth = 2.6*MOBILE_PROP_SCALE;
+    for (const sp of sprinkles){
+      const scr = worldToScreen(sp.x, sp.y);
+      const l = 3.5*MOBILE_PROP_SCALE;
+      ctx.globalAlpha = Math.min(1, sp.life*2);
+      ctx.strokeStyle = sp.color;
+      ctx.beginPath();
+      ctx.moveTo(scr.sx - Math.cos(sp.rot)*l, scr.sy - Math.sin(sp.rot)*l*0.55);
+      ctx.lineTo(scr.sx + Math.cos(sp.rot)*l, scr.sy + Math.sin(sp.rot)*l*0.55);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
   // Slime trail for the Slime Dragon skin (see spawnSlimePuddle): flat goo-green ellipses
   // squashed to the floor's iso angle, with a darker rim so they stand out on the grass and a
   // glossy highlight, fading as they dry up.
@@ -2667,6 +2796,7 @@ import { DRAGON_SPEED, resolveInputDirection, screenInputToWorldMove, easedVeloc
     drawWindStreaks();
     drawWindSwooshes();
     drawSlimePuddles();
+    drawSprinkles();
     drawScorchMarks();
     drawPicklePuddles();
     drawDragonTrail();
