@@ -33,6 +33,7 @@ const SCHEMA_FILES = [
   'supabase_stats_schema.sql',
   'supabase_stats_private.sql',
   'supabase_slime_dragon_skin.sql',
+  'supabase_unicorn_dragon_skin.sql',
   'supabase_admin_all_skins.sql',
 ];
 const sqlOf = (f) => readFileSync(resolve(ROOT, f), 'utf8');

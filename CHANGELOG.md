@@ -2,6 +2,15 @@
 
 Running log of notable changes, kept during dev sessions for reference.
 
+## 2026-10-30 -- Unicorn Dragon skin
+
+New `dragon-unicorn` skin: the base Blender dragon recolored pink with a canvas-drawn golden horn,
+rainbow mane and tail tuft. It leaves a trail of rainbow sprinkles on the ground, and its thrown
+burgers become nyan cats with a wavy rainbow trail (index.html: dragonIsUnicorn, spawnSprinkle,
+drawUnicornGear, drawNyanBurger). Blender wasn't available, so there is no dedicated props.png model
+yet. The shop row (supabase/migrations/20261030190000_unicorn_dragon_skin.sql) is inactive with no
+Stripe price until one is created. Service worker cache v57.
+
 ## 2026-10-28 -- Dragon skin icons fixed
 
 The Shop and My Skins icons were cropped from props.png assuming 17 frames; the pickle frame made

@@ -209,7 +209,7 @@ describe('REGRESSION: the dragon-skin variables are declared BEFORE auth.onChang
   it('auth.onChange is registered exactly once, and after the declarations', () => {
     expect(onChangeAt).toBeGreaterThan(0);
     expect(html.indexOf('auth.onChange(', onChangeAt + 1)).toBe(-1);
-    for (const decl of ['let dragonEmoji', 'let dragonFilter', 'let dragonIsRed', 'let dragonIsSlime']) {
+    for (const decl of ['let dragonEmoji', 'let dragonFilter', 'let dragonIsRed', 'let dragonIsSlime', 'let dragonIsUnicorn']) {
       const at = html.indexOf(decl);
       expect(at, decl).toBeGreaterThan(0);
       expect(at, decl).toBeLessThan(onChangeAt);
